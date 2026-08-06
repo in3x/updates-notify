@@ -16,3 +16,9 @@ Unattended-Upgrade::SyslogEnable "true";
 // Error handling via unattended-upgrades native hook script wrapper
 Unattended-Upgrade::PostInstallScript "/usr/local/bin/apt-post-install-telemetry.sh";
 
+// security upgrades only
+Unattended-Upgrade::Allowed-Origins {
+        "${distro_id}:${distro_codename}-security";
+        "${distro_id}ESMApps:${distro_codename}-apps-security";
+        "${distro_id}ESM:${distro_codename}-infra-security";
+};
