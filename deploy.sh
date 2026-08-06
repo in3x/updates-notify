@@ -65,7 +65,9 @@ install_file_safely() {
                     break
                     ;;
                 [Nn]*)
-                    echo "   Skipping ${dest}."
+                    echo "   Skipping ${dest} content update (enforcing permissions)..."
+                    chmod "${mode}" "${dest}"
+                    chown "${owner}:${group}" "${dest}"
                     return 0
                     ;;
                 [Cc]*)
@@ -96,7 +98,13 @@ echo "-> Checking configuration in /etc/conditional-reboot.conf.d/"
 install -d -m 0700 -o root -g root /etc/conditional-reboot.conf.d
 
 CONF_FILE="/etc/conditional-reboot.conf.d/99-local.conf"
-install_file_safely "${REPO_DIR}/conf/99-local.conf.example" "${CONF_FILE}" 0600 root root
+if [[ ! -f "${CONF_FILE}" ]]; then
+    install_file_safely "${REPO_DIR}/conf/99-local.conf.example" "${CONF_FILE}" 0600 root root
+else
+    echo "   [EXISTS] Preserving production ${CONF_FILE}"
+    chmod 0600 "${CONF_FILE}"
+    chown root:root "${CONF_FILE}"
+fi
 
 # 5. Install APT Post-Install Hook (Ubuntu / Debian)
 if [[ -d /etc/apt/apt.conf.d ]]; then
