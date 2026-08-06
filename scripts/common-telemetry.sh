@@ -22,8 +22,12 @@ send_ntfy() {
     local message="${2:-No message body provided.}"
     local priority="${3:-default}"
     if [[ -n "${NTFY_TOPIC:-}" ]]; then
-        curl -fsS -H "Title: ${title}" -H "Priority: ${priority}" \
-             -d "${message}" "https://ntfy.sh/${NTFY_TOPIC}" >/dev/null 2>&1 || true
+        curl -s \
+             -H "Authorization: Bearer ${NTFY_TOKEN:-}" \
+             -H "Title: ${title}" \
+             -H "Priority: ${priority}" \
+             -d "${message}" \
+             "https://ntfy.sh/${NTFY_TOPIC}"  >/dev/null 2>&1 || true
     fi
 }
 
@@ -33,7 +37,7 @@ failure_handler() {
     script_name="$(basename "$0")"
 
     logger -t "${script_name}" "Script error occurred on line ${line_no}."
-    send_ntfy "🚨 Pipeline Failure: ${script_name}" "${script_name} crashed on $(hostname) at line ${line_no}." "high"
+    send_ntfy "🚨 Pipeline Failure: ${script_name}" "${script_name} crashed on $(hostname) at line ${line_no}." "urgent"
     ping_hc "fail"
     exit 1
 }
