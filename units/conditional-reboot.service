@@ -1,0 +1,7 @@
+[Unit]
+Description=Conditional Reboot Orchestration Pipeline
+OnFailure=failure-notification@%n.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/conditional-reboot.sh
