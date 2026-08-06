@@ -1,0 +1,18 @@
+// Disable noisy local email reports (relying on NTFY/Healthchecks.io)
+APT::Periodic::Verbose "0";
+
+// 1. Core Update Schedules (Overrides 20auto-upgrades)
+APT::Periodic::Update-Package-Lists "1";
+APT::Periodic::Unattended-Upgrade "1";
+
+// 2. Lifecycle & Cleanup
+Unattended-Upgrade::Automatic-Reboot "false";
+Unattended-Upgrade::MinimalSteps "true";
+Unattended-Upgrade::Remove-Unused-Kernel-Packages "true";
+Unattended-Upgrade::Remove-Unused-Dependencies "true";
+Unattended-Upgrade::Remove-New-Unused-Dependencies "true";
+Unattended-Upgrade::SyslogEnable "true";
+
+// Error handling via unattended-upgrades native hook script wrapper
+Unattended-Upgrade::PostInstallScript "/usr/local/bin/apt-post-install-telemetry.sh";
+

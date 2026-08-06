@@ -1,0 +1,10 @@
+# Host Telemetry & Notification Overrides
+# Deploy to /etc/conditional-reboot.conf.d/99-local.conf (chmod 600, root:root)
+
+NTFY_TOPIC="your-topic-here"
+HC_PING_URL="https://hc-ping.com/your-uuid-here"
+
+# Maintenance Constraints
+MAINTENANCE_WINDOW_START="02:00"
+MAINTENANCE_WINDOW_END="05:00"
+BLOCKED_PROCESSES=("backup_job" "db_migration" "rsync")
