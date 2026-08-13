@@ -27,7 +27,7 @@ send_ntfy() {
              -H "Title: ${title}" \
              -H "Priority: ${priority}" \
              -d "${message}" \
-             "https://ntfy.sh/${NTFY_TOPIC}"  >/dev/null 2>&1 || true
+             "${NTFY_URL:-https://ntfy.sh}/${NTFY_TOPIC}" >/dev/null 2>&1 || true
     fi
 }
 
@@ -37,7 +37,7 @@ failure_handler() {
     script_name="$(basename "$0")"
 
     logger -t "${script_name}" "Script error occurred on line ${line_no}."
-    send_ntfy "🚨 Pipeline Failure: ${script_name}" "${script_name} crashed on $(hostname) at line ${line_no}." "urgent"
+    send_ntfy "🚨 Pipeline Failure: ${script_name}" "${script_name} crashed on ${HOSTNAME} at line ${line_no}." "urgent"
     ping_hc "fail"
     exit 1
 }

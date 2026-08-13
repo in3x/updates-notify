@@ -12,8 +12,8 @@ trap 'failure_handler ${LINENO}' ERR
 # 3. Main Logic
 FAILED_UNIT="${1:-unknown.service}"
 
-logger -t systemd-notify "Systemd service ${FAILED_UNIT} failed on $(hostname)."
-send_ntfy "🚨 Systemd Execution Failure" "Systemd unit '${FAILED_UNIT}' failed on $(hostname)." "high"
+logger -t systemd-notify "Systemd service ${FAILED_UNIT} failed on ${HOSTNAME}."
+send_ntfy "🚨 Systemd Execution Failure" "Systemd unit '${FAILED_UNIT}' failed on ${HOSTNAME}." "high"
 ping_hc "fail"
 
 exit 0
