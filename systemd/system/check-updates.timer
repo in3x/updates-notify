@@ -1,0 +1,10 @@
+[Unit]
+Description=Trigger Outstanding Package Updates Check Daily
+
+[Timer]
+OnCalendar=*-*-* 08:00:00
+RandomizedDelaySec=900
+Persistent=true
+
+[Install]
+WantedBy=timers.target
