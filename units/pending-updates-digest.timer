@@ -1,0 +1,10 @@
+[Unit]
+Description=Trigger Weekly Pending Updates Notification on Friday
+
+[Timer]
+OnCalendar=Fri *-*-* 09:00:00
+RandomizedDelaySec=900
+Persistent=true
+
+[Install]
+WantedBy=timers.target

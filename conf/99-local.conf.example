@@ -5,6 +5,9 @@ NTFY_TOPIC="your-topic-here"
 NTFY_TOKEN="your-token-here"
 HC_PING_URL="https://hc-ping.com/your-uuid-here"
 
+# Optional: Dedicated NTFY command topic for remote action button triggers (defaults to <NTFY_TOPIC>-cmd)
+# NTFY_CMD_TOPIC="your-topic-cmd"
+
 
 # Maintenance Constraints
 MAINTENANCE_WINDOW_START="02:00"

@@ -205,6 +205,9 @@ install_file_safely "${REPO_DIR}/scripts/common-telemetry.sh" "/usr/local/bin/co
 install_file_safely "${REPO_DIR}/scripts/apt-post-install-telemetry.sh" "/usr/local/bin/apt-post-install-telemetry.sh" 0755
 install_file_safely "${REPO_DIR}/scripts/conditional-reboot.sh" "/usr/local/bin/conditional-reboot.sh" 0755
 install_file_safely "${REPO_DIR}/scripts/systemd-failure-notify.sh" "/usr/local/bin/systemd-failure-notify.sh" 0755
+install_file_safely "${REPO_DIR}/scripts/pending-updates-digest.sh" "/usr/local/bin/pending-updates-digest.sh" 0755
+install_file_safely "${REPO_DIR}/scripts/apply-all-updates.sh" "/usr/local/bin/apply-all-updates.sh" 0755
+install_file_safely "${REPO_DIR}/scripts/remote-update-listener.sh" "/usr/local/bin/remote-update-listener.sh" 0755
 
 # 5. Create Configuration Directory & Template
 echo "-> Checking configuration in /etc/conditional-reboot.conf.d/"
@@ -245,12 +248,17 @@ fi
 echo "-> Checking systemd units in /etc/systemd/system/"
 install_file_safely "${REPO_DIR}/units/conditional-reboot.service" "/etc/systemd/system/conditional-reboot.service" 0644
 install_file_safely "${REPO_DIR}/units/conditional-reboot.timer" "/etc/systemd/system/conditional-reboot.timer" 0644
+install_file_safely "${REPO_DIR}/units/pending-updates-digest.service" "/etc/systemd/system/pending-updates-digest.service" 0644
+install_file_safely "${REPO_DIR}/units/pending-updates-digest.timer" "/etc/systemd/system/pending-updates-digest.timer" 0644
+install_file_safely "${REPO_DIR}/units/remote-update-listener.service" "/etc/systemd/system/remote-update-listener.service" 0644
 install_file_safely "${REPO_DIR}/units/failure-notification@.service" "/etc/systemd/system/failure-notification@.service" 0644
 
-# 8. Reload Systemd & Enable Timers
-echo "-> Reloading systemd daemon and enabling timers..."
+# 8. Reload Systemd & Enable Timers and Services
+echo "-> Reloading systemd daemon and enabling timers and services..."
 systemctl daemon-reload
 systemctl enable --now conditional-reboot.timer
+systemctl enable --now pending-updates-digest.timer
+systemctl enable --now remote-update-listener.service
 
 if command -v dnf-automatic >/dev/null 2>&1; then
     systemctl enable --now dnf-automatic.timer
