@@ -36,6 +36,7 @@ failure_handler() {
     local script_name
     script_name="$(basename "$0")"
 
+    touch /run/package-update.failed 2>/dev/null || true
     logger -t "${script_name}" "Script error occurred on line ${line_no}."
     send_ntfy "🚨 Pipeline Failure: ${script_name}" "${script_name} crashed on ${HOSTNAME} at line ${line_no}." "urgent"
     ping_hc "fail"
