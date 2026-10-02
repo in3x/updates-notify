@@ -9,8 +9,8 @@ HC_PING_URL="https://hc-ping.com/your-uuid-here"
 # NTFY_CMD_TOPIC="your-topic-cmd"
 
 
-# Maintenance Constraints
+# Maintenance Constraints & Safety Locks
 MAINTENANCE_WINDOW_START="02:00"
 MAINTENANCE_WINDOW_END="05:00"
 REBOOT_DELAY_MINUTES="5"
-BLOCKED_PROCESSES=("backup_job" "db_migration" "rsync")
+BLOCKED_PROCESSES=("apt" "apt-get" "dpkg" "unattended-upgrade" "dnf" "yum" "rpm" "check-updates" "backup_job" "db_migration" "rsync")
