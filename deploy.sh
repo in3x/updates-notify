@@ -108,6 +108,97 @@ install_file_safely() {
     install -m "${mode}" -o "${owner}" -g "${group}" "${src}" "${dest}"
 }
 
+# Create Timestamped Backup and Rotate to Retain Max N Backups
+backup_and_rotate_config() {
+    local target_file="$1"
+    local max_backups="${2:-3}"
+    local timestamp
+    timestamp="$(date +%Y%m%d-%H%M%S)"
+    local backup_file="${target_file}.${timestamp}.bak"
+
+    cp -p "${target_file}" "${backup_file}"
+    chmod 0600 "${backup_file}"
+    chown root:root "${backup_file}"
+    echo "   [BACKUP] Saved backup copy: ${backup_file}"
+
+    local target_dir
+    target_dir="$(dirname "${target_file}")"
+    local target_name
+    target_name="$(basename "${target_file}")"
+
+    local -a backups=()
+    while IFS= read -r -d $'\0' file; do
+        backups+=("${file}")
+    done < <(find "${target_dir}" -maxdepth 1 -name "${target_name}.*.bak" -type f -print0 | sort -z)
+
+    local total="${#backups[@]}"
+    if (( total > max_backups )); then
+        local num_to_remove=$(( total - max_backups ))
+        for (( i=0; i<num_to_remove; i++ )); do
+            echo "   [ROTATE] Removing old backup ($(( i + 1 ))/${num_to_remove}): ${backups[i]}"
+            rm -f "${backups[i]}"
+        done
+    fi
+}
+
+# Merge New Configuration Keys from Example Template into Destination File
+merge_config_settings() {
+    local example="$1"
+    local dest="$2"
+    local max_backups="${3:-3}"
+
+    if [[ ! -f "${example}" || ! -f "${dest}" ]]; then
+        return 0
+    fi
+
+    local -a missing_blocks=()
+    local pending_comment=""
+
+    while IFS= read -r line || [[ -n "${line}" ]]; do
+        if [[ "${line}" =~ ^[[:space:]]*# ]]; then
+            if [[ -z "${pending_comment}" ]]; then
+                pending_comment="${line}"
+            else
+                pending_comment="${pending_comment}"$'\n'"${line}"
+            fi
+            continue
+        elif [[ "${line}" =~ ^[[:space:]]*$ ]]; then
+            pending_comment=""
+            continue
+        fi
+
+        if [[ "${line}" =~ ^[[:space:]]*([A-Za-z_][A-Za-z0-9_]*)= ]]; then
+            local var_name="${BASH_REMATCH[1]}"
+            if ! grep -qE "^[[:space:]]*#?[[:space:]]*${var_name}=" "${dest}"; then
+                local block=""
+                if [[ -n "${pending_comment}" ]]; then
+                    block="${pending_comment}"$'\n'
+                fi
+                block="${block}${line}"
+                missing_blocks+=("${block}")
+                echo "   [MERGE] Detected new setting '${var_name}' from template."
+            fi
+            pending_comment=""
+        else
+            pending_comment=""
+        fi
+    done < "${example}"
+
+    if [[ ${#missing_blocks[@]} -gt 0 ]]; then
+        backup_and_rotate_config "${dest}" "${max_backups}"
+
+        for block in "${missing_blocks[@]}"; do
+            {
+                echo ""
+                echo "${block}"
+            } >> "${dest}"
+        done
+        echo "   [MERGED] ${#missing_blocks[@]} new setting(s) appended to ${dest} (preserving all existing values & comments)."
+    else
+        echo "   [UNCHANGED] ${dest} contains all template settings."
+    fi
+}
+
 # 4. Install Executable Scripts
 echo "-> Checking and installing scripts in /usr/local/bin/"
 install_file_safely "${REPO_DIR}/scripts/common-telemetry.sh" "/usr/local/bin/common-telemetry.sh" 0755
@@ -120,12 +211,17 @@ echo "-> Checking configuration in /etc/conditional-reboot.conf.d/"
 install -d -m 0700 -o root -g root /etc/conditional-reboot.conf.d
 
 CONF_FILE="/etc/conditional-reboot.conf.d/99-local.conf"
+EXAMPLE_FILE="${REPO_DIR}/conf/99-local.conf.example"
+
 if [[ ! -f "${CONF_FILE}" ]]; then
-    if [[ -f "${REPO_DIR}/conf/99-local.conf.example" ]]; then
-        install_file_safely "${REPO_DIR}/conf/99-local.conf.example" "${CONF_FILE}" 0600 root root
+    if [[ -f "${EXAMPLE_FILE}" ]]; then
+        install_file_safely "${EXAMPLE_FILE}" "${CONF_FILE}" 0600 root root
     fi
 else
-    echo "   [EXISTS] Preserving production ${CONF_FILE}"
+    echo "   [EXISTS] Checking for new template settings in ${CONF_FILE}..."
+    if [[ -f "${EXAMPLE_FILE}" ]]; then
+        merge_config_settings "${EXAMPLE_FILE}" "${CONF_FILE}"
+    fi
     chmod 0600 "${CONF_FILE}"
     chown root:root "${CONF_FILE}"
 fi

@@ -9,4 +9,5 @@ HC_PING_URL="https://hc-ping.com/your-uuid-here"
 # Maintenance Constraints
 MAINTENANCE_WINDOW_START="02:00"
 MAINTENANCE_WINDOW_END="05:00"
+REBOOT_DELAY_MINUTES="5"
 BLOCKED_PROCESSES=("backup_job" "db_migration" "rsync")

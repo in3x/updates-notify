@@ -12,6 +12,7 @@ trap 'failure_handler ${LINENO}' ERR
 # 3. Script Logic & Defaults
 MAINTENANCE_WINDOW_START="${MAINTENANCE_WINDOW_START:-02:00}"
 MAINTENANCE_WINDOW_END="${MAINTENANCE_WINDOW_END:-05:00}"
+REBOOT_DELAY_MINUTES="${REBOOT_DELAY_MINUTES:-5}"
 
 if [[ -z "${BLOCKED_PROCESSES+x}" ]]; then
     BLOCKED_PROCESSES=("backup_job" "db_migration" "rsync")
@@ -29,8 +30,15 @@ fi
 
 # 5. Check If Reboot Is Required
 REBOOT_REQUIRED=false
+TRIGGER_PKGS=""
+
 if [[ -f /run/reboot-required || -f /var/run/reboot-required ]]; then
     REBOOT_REQUIRED=true
+    if [[ -s /run/reboot-required.pkgs ]]; then
+        TRIGGER_PKGS=$(paste -sd ', ' /run/reboot-required.pkgs 2>/dev/null || tr '\n' ' ' < /run/reboot-required.pkgs)
+    elif [[ -s /var/run/reboot-required.pkgs ]]; then
+        TRIGGER_PKGS=$(paste -sd ', ' /var/run/reboot-required.pkgs 2>/dev/null || tr '\n' ' ' < /var/run/reboot-required.pkgs)
+    fi
 elif command -v needs-restarting >/dev/null 2>&1; then
     if ! needs-restarting -r >/dev/null 2>&1; then
         REBOOT_REQUIRED=true
@@ -43,19 +51,25 @@ if [[ "${REBOOT_REQUIRED}" == "false" ]]; then
     exit 0
 fi
 
+PKG_INFO=""
+if [[ -n "${TRIGGER_PKGS}" ]]; then
+    PKG_INFO=" (packages: ${TRIGGER_PKGS})"
+    logger -t conditional-reboot "Reboot required by: ${TRIGGER_PKGS}"
+fi
+
 # 6. Maintenance Window Check
 CURRENT_TIME=$(date +%H:%M)
 if [[ "${CURRENT_TIME}" < "${MAINTENANCE_WINDOW_START}" || "${CURRENT_TIME}" > "${MAINTENANCE_WINDOW_END}" ]]; then
-    logger -t conditional-reboot "Reboot required but outside maintenance window (${CURRENT_TIME}). Deferring."
-    send_ntfy "ℹ️ Reboot Deferred" "Reboot deferred on ${HOSTNAME}: Outside maintenance window (${CURRENT_TIME})." "high"
+    logger -t conditional-reboot "Reboot required${PKG_INFO} but outside maintenance window (${CURRENT_TIME}). Deferring."
+    send_ntfy "ℹ️ Reboot Deferred" "Reboot deferred on ${HOSTNAME}: Outside maintenance window (${CURRENT_TIME}).${PKG_INFO}" "high"
     ping_hc ""
     exit 0
 fi
 
 # 7. Active SSH User Check
 if who | grep -q -v -w 'root'; then
-    logger -t conditional-reboot "Active user sessions detected. Deferring reboot."
-    send_ntfy "ℹ️ Reboot Deferred" "Reboot deferred on ${HOSTNAME}: Active logged-in user sessions." "high"
+    logger -t conditional-reboot "Active user sessions detected. Deferring reboot.${PKG_INFO}"
+    send_ntfy "ℹ️ Reboot Deferred" "Reboot deferred on ${HOSTNAME}: Active logged-in user sessions.${PKG_INFO}" "high"
     ping_hc ""
     exit 0
 fi
@@ -63,15 +77,15 @@ fi
 # 8. Blocked Process Check
 for proc in "${BLOCKED_PROCESSES[@]}"; do
     if pgrep -f "${proc}" >/dev/null 2>&1; then
-        logger -t conditional-reboot "Blocked process '${proc}' is active. Deferring reboot."
-        send_ntfy "ℹ️ Reboot Deferred" "Reboot deferred on ${HOSTNAME}: Process '${proc}' is currently running." "high"
+        logger -t conditional-reboot "Blocked process '${proc}' is active. Deferring reboot.${PKG_INFO}"
+        send_ntfy "ℹ️ Reboot Deferred" "Reboot deferred on ${HOSTNAME}: Process '${proc}' is currently running.${PKG_INFO}" "high"
         ping_hc ""
         exit 0
     fi
 done
 
 # 9. Execute System Reboot
-logger -t conditional-reboot "All safety checks passed. Triggering system reboot."
-send_ntfy "🔄 System Rebooting" "Automated maintenance checks passed on ${HOSTNAME}. Initiating reboot in 1 minute."
+logger -t conditional-reboot "All safety checks passed. Triggering intentional system reboot.${PKG_INFO}"
+send_ntfy "🔄 Reboot Scheduled" "Intentional maintenance reboot scheduled on ${HOSTNAME} by conditional-reboot utility. All safety checks passed.${PKG_INFO} System will reboot in ${REBOOT_DELAY_MINUTES} minutes." "high"
 ping_hc ""
-shutdown -r +1 "Automated maintenance reboot scheduled in 1 minute."
+shutdown -r "+${REBOOT_DELAY_MINUTES}" "Automated maintenance reboot scheduled in ${REBOOT_DELAY_MINUTES} minutes by conditional-reboot utility."
