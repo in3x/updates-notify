@@ -3,11 +3,14 @@
 Fleet-wide automated security updates and conditional reboot orchestration pipeline supporting Ubuntu (22.04+) and RHEL (9+).
 
 ## Repository Layout
-- `scripts/common-telemetry.sh`: Shared telemetry, NTFY dispatch, and failure handling routines.
+- `scripts/common-telemetry.sh`: Shared telemetry, NTFY dispatch, pending package queries, and failure handling routines.
 - `scripts/conditional-reboot.sh`: Core logic for checking reboot flags (`/run/reboot-required` / `needs-restarting -r`), user sessions, process locks, and scheduling reboots.
+- `scripts/pending-updates-digest.sh`: Weekly Friday digest notifying of outstanding pending package updates.
+- `scripts/apply-all-updates.sh`: Non-interactive full package upgrade runner with real-time telemetry.
+- `scripts/remote-update-listener.sh`: Background listener daemon for two-way NTFY action button triggers.
 - `scripts/apt-post-install-telemetry.sh`: Post-install execution hook for APT-based hosts.
 - `scripts/systemd-failure-notify.sh`: Systemd unit failure notification dispatcher.
-- `units/`: Timer and service definitions for systemd reboot orchestration.
+- `units/`: Timer and service definitions for systemd reboot orchestration and remote listeners.
 - `apt/apt.conf.d/99unattended-upgrades-local`: Debian/Ubuntu package manager local overrides.
 - `dnf/99-dnf-automatic-local.conf`: RHEL/CentOS package manager local overrides.
 
