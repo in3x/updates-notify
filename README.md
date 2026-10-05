@@ -10,6 +10,7 @@ Fleet-wide automated security updates and conditional reboot orchestration pipel
 - `scripts/apply-all-updates.sh`: Non-interactive full package upgrade runner with real-time telemetry.
 - `scripts/remote-update-listener.sh`: Background listener daemon for two-way NTFY action button triggers.
 - `scripts/apt-post-install-telemetry.sh`: Post-install execution hook for APT-based hosts.
+- `scripts/generate-topic.sh`: Utility to generate unique, random NTFY topic names.
 - `scripts/systemd-failure-notify.sh`: Systemd unit failure notification dispatcher.
 - `units/`: Timer and service definitions for systemd reboot orchestration, update checking, digests, and remote listeners.
 - `apt/apt.conf.d/99unattended-upgrades-local`: Debian/Ubuntu package manager local overrides.
@@ -90,6 +91,21 @@ sudo ./deploy.sh
 
 ### 2. Configure Local Overrides (`99-local.conf`)
 
+#### Generate a Unique NTFY Topic Name
+Use `generate-topic.sh` to generate a unique topic identifier consisting of a local usable name and a random 16-character alphanumeric suffix:
+
+```bash
+# Syntax: ./scripts/generate-topic.sh <local-usable-name> [suffix-length]
+
+./scripts/generate-topic.sh pw-lake-updates
+# Output: pw-lake-updates-8861344083d8c97d
+
+# Or with custom suffix length:
+./scripts/generate-topic.sh my-server-updates 16
+# Output: my-server-updates-a4f91b80c3e7215d
+```
+
+#### Edit Configuration
 Configure host-specific telemetry, NTFY authentication credentials, and reboot maintenance windows:
 
 ```bash
