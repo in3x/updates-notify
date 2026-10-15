@@ -85,3 +85,49 @@ The pipeline supports remote action buttons via NTFY (e.g. `[🚀 Apply All Upda
   When the action button triggers `apply-all-updates.sh`, the script evaluates package status live against current repositories.
 - **Reboot Independence**:
   If a reboot occurs between receiving the notification and pressing the button, the system state remains clean (since `/run` flags reside on `tmpfs`). Tapping the button post-reboot simply queries the package manager; if updates were already applied, it safely reports that 0 packages need upgrading.
+
+---
+
+## Automated Dependency Provisioning & Safe etckeeper Detection
+
+### 1. Automated Cross-Platform Dependency Provisioning
+
+To enable zero-touch bootstrapping across heterogeneous fleets, `deploy.sh` automates the dependency and repository resolution process:
+
+- **RHEL Ecosystem (RHEL 9+, CentOS Stream, Rocky Linux, AlmaLinux)**:
+  - **Dynamic Version Detection**: Extracts the active major version at runtime using `rpm -E %rhel` rather than hardcoding distribution releases.
+  - **CodeReady Linux Builder (CRB)**: Automatically activates the CRB / PowerTools repository, which is required to satisfy upstream package dependencies for EPEL tools:
+    - On registered RHEL nodes: `subscription-manager repos --enable codeready-builder-for-rhel-${rhel_ver}-$(arch)-rpms`
+    - On RHEL clones / standard DNF systems: `crb enable` or `dnf config-manager --set-enabled crb`
+  - **EPEL Provisioning**: Automatically installs the Extra Packages for Enterprise Linux (EPEL) configuration package if not already registered, ensuring `etckeeper` is installable.
+  - **Core Tools**: Resolves and installs missing core requirements (`dnf-utils`, `dnf-automatic`, `etckeeper`, `git`).
+- **Debian / Ubuntu Ecosystem (Ubuntu 22.04+, Debian 12+)**:
+  - Automatically updates package indexes and installs missing dependencies (`unattended-upgrades`, `etckeeper`, `git`) using `DEBIAN_FRONTEND=noninteractive`.
+
+---
+
+### 2. Safe `etckeeper` Repository Detection & VCS Preservation
+
+Managing `/etc` in version control is critical for infrastructure stability, but automated installers often risk re-initializing and overwriting existing repositories. The deployment pipeline enforces strict VCS safety checks:
+
+```mermaid
+graph TD
+    A[Inspect etckeeper binary] -->|Present| B{Check VCS Directory in /etc}
+    A -->|Missing| C[Log warning & proceed without /etc tracking]
+    B -->|/etc/.git, .hg, or .bzr exists| D[Existing Repo Detected]
+    B -->|No VCS dir found| E[Uninitialized Repo]
+    D --> F[Preserve Existing History]
+    F --> G[Run etckeeper pre-install: Stage changes]
+    E --> H[Run etckeeper init]
+    H --> I[Configure default git author if missing]
+    I --> J[Run initial baseline commit]
+    G --> K[Deploy updates-notify components]
+    J --> K
+    K --> L[Run etckeeper post-install: Commit changes]
+```
+
+#### Safety Guarantees:
+1. **Zero-Destruction Guarantee**: `deploy.sh` checks for the presence of `/etc/.git`, `/etc/.hg`, or `/etc/.bzr`. If an existing VCS repository is found, `etckeeper init` is **never** executed, preserving all past commit history, remotes, branches, and custom hooks.
+2. **Pre-Deployment Staging**: If an initialized repository is detected, `deploy.sh` calls `etckeeper pre-install` prior to writing any files, ensuring that any uncommitted local system modifications are staged.
+3. **Safe First-Time Initialization**: If `etckeeper` was newly installed or never initialized, the script initializes the repository and creates an initial baseline commit before applying pipeline changes.
+4. **Post-Deployment Audit Commit**: Once deployment completes successfully, `etckeeper post-install` commits the exact file additions and permission changes made by `deploy.sh`.

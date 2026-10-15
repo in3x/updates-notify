@@ -4,24 +4,18 @@ Unintentional, cloud-independent micro-automation stack for system updates for b
 
 ## Features
 
-- **Decoupled Pipelines**: Separates pending update scanning from conditional reboot evaluation, preventing false alarms and execution collisions.
 - **Cross-Distribution Support**: Native support for Ubuntu/Debian (`apt`, `unattended-upgrades`) and RHEL/CentOS (`dnf`, `dnf-automatic`, `needs-restarting`).
-- **Outstanding Updates Monitoring**: Scans repositories daily for pending upgrades with detailed package counts and summaries.
-- **Interactive NTFY Action Buttons**: Trigger remote, non-interactive package upgrades (`[🚀 Apply All Updates]`) directly from mobile or desktop notifications without opening SSH.
-- **Safety-First Reboot Orchestration**: Enforces strict maintenance windows, verifies absence of active non-root SSH users, checks blocked background tasks, and verifies package manager locks before restarting.
+- **Security and Outstanding Updates Monitoring**: Scans repositories daily for pending upgrades with detailed package counts and summaries.
+- **Interactive NTFY Action Buttons**: Trigger remote, non-interactive package upgrades (`[🚀 Apply All Updates]`) directly from mobile or desktop notifications without opening SSH. Design notes are found at: [Notification Timing & NTFY Action Buttons](docs/design.md#notification-timing-ntfy-action=buttons)
+- **Safety-First Reboot Orchestration**: Enforces strict maintenance windows, verifies absence of active non-root SSH users, checks blocked background tasks, and verifies package manager locks before restarting. Design notes are found at: [Collision Prevention & Orchestration Safety](docs/design.md#collision-prevention--orchestration-safety).
+
 - **5-Minute Pre-Reboot Grace Period**: Broadcasts high-priority alert notifications before reboot, giving operators time to cancel (`shutdown -c`) if needed.
 - **Package-Level Audit Logging**: Identifies and logs the specific packages triggering the reboot need (from `/run/reboot-required.pkgs` or `needs-restarting`).
 - **Failure Quarantine & Alerting**: Halts automated reboots if prior package installations failed, dispatching urgent alerts to NTFY and Healthchecks.io.
-- **Safe Configuration Deployment**: `deploy.sh` merges new template options into active configs without overwriting local customizations, creating timestamped backups (`.YYYYMMDD-HHMMSS.bak`, max 3 retained).
+- **Decoupled Pipelines**: Separates pending update scanning from conditional reboot evaluation, preventing false alarms and execution collisions. Design notes are found at: [Pipeline Architecture & Decoupled Design documentation](docs/design.md#pipeline-architecture--decoupled-design).
+- **Safe Configuration Deployment**: `deploy.sh` merges new template options into active configs without overwriting local customizations, creating timestamped backups (`.YYYYMMDD-HHMMSS.bak`, Configurable backup retention count.).
 - **Systemd Failure Monitoring**: Generic systemd failure notification unit (`failure-notification@.service`) that alerts on service crashes across your fleet.
 - **Topic Generation Utility**: Built-in CLI tool (`generate-topic.sh`) to produce unique, high-entropy NTFY topic names.
-
-## Pipeline Architecture & Decoupled Design
-
-The system splits package management and reboot orchestration into two decoupled, independent pipelines to avoid mixing update notifications with reboot lifecycles:
-
-For design notes on this topic and others and see: [Pipeline Architecture & Decoupled Design documentation](docs/design.md#pipeline-architecture--decoupled-design).
-
 
 ---
 
@@ -31,13 +25,15 @@ Follow these steps to deploy the pipeline across target Linux nodes.
 
 ### Prerequisites
 
-> **Note:** The `deploy.sh` script automatically checks for required package dependencies during execution and halts if any are missing. 
+> **Automatic Dependency Resolution:** The `deploy.sh` script automatically detects, provisions repositories (CRB / EPEL on RHEL), and installs all missing dependencies (`unattended-upgrades`, `dnf-utils`, `dnf-automatic`, `etckeeper`, `git`). It also verifies whether `etckeeper` is already initialized so existing `/etc` git history is strictly preserved.  Design notes are found at: [Automated Dependency Provisioning & Safe etckeeper Detection](docs/design.md#automated-dependency-provisioning-safe-etckeeper-detection).
 
-If you need to pre-install dependencies manually before deploying:
+If you prefer to pre-install dependencies manually before deploying:
 
 * **RHEL 9+ Hosts:** Ensure both `dnf-utils` (for `needs-restarting`) and `dnf-automatic` are installed:
   ```bash
   sudo dnf install -y dnf-utils dnf-automatic
+  sudo subscription-manager repos --enable codeready-builder-for-rhel-9-$(arch)-rpms
+  sudo dnf install https://dl.fedoraproject.org/pub/epel/epel-release-latest-9.noarch.rpm
   ```
 * **Ubuntu / Debian Hosts:** Ensure `unattended-upgrades` is installed:
   ```bash
@@ -137,16 +133,3 @@ sudo journalctl -t conditional-reboot -n 20
 # 3. Simulate an in-window execution check using libfaketime
 sudo faketime '03:30:00' /usr/local/bin/conditional-reboot.sh
 ```
-
----
-
-## Collision Prevention & Orchestration Safety
-
-Design notes on guarantees that conditional reboots and package upgrades never collide, see: [Collision Prevention & Orchestration Safety](docs/design.md#collision-prevention--orchestration-safety).
-
----
-
-## Notification Timing & NTFY Action Buttons
-
-The pipeline supports remote action buttons via NTFY (e.g. `[🚀 Apply All Updates]`):
-Design notes are found at: [Notification Timing & NTFY Action Buttons](docs/design.md#notification-timing-ntfy-action=buttons)
