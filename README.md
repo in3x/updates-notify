@@ -2,6 +2,19 @@
 
 Unintentional, cloud-independent micro-automation stack for system updates for both security and outstanding packages supporting Ubuntu (22.04+) and RHEL (9+).
 
+## Features
+
+- **Decoupled Pipelines**: Separates pending update scanning from conditional reboot evaluation, preventing false alarms and execution collisions.
+- **Cross-Distribution Support**: Native support for Ubuntu/Debian (`apt`, `unattended-upgrades`) and RHEL/CentOS (`dnf`, `dnf-automatic`, `needs-restarting`).
+- **Outstanding Updates Monitoring**: Scans repositories daily for pending upgrades with detailed package counts and summaries.
+- **Interactive NTFY Action Buttons**: Trigger remote, non-interactive package upgrades (`[🚀 Apply All Updates]`) directly from mobile or desktop notifications without opening SSH.
+- **Safety-First Reboot Orchestration**: Enforces strict maintenance windows, verifies absence of active non-root SSH users, checks blocked background tasks, and verifies package manager locks before restarting.
+- **5-Minute Pre-Reboot Grace Period**: Broadcasts high-priority alert notifications before reboot, giving operators time to cancel (`shutdown -c`) if needed.
+- **Package-Level Audit Logging**: Identifies and logs the specific packages triggering the reboot need (from `/run/reboot-required.pkgs` or `needs-restarting`).
+- **Failure Quarantine & Alerting**: Halts automated reboots if prior package installations failed, dispatching urgent alerts to NTFY and Healthchecks.io.
+- **Safe Configuration Deployment**: `deploy.sh` merges new template options into active configs without overwriting local customizations, creating timestamped backups (`.YYYYMMDD-HHMMSS.bak`, max 3 retained).
+- **Systemd Failure Monitoring**: Generic systemd failure notification unit (`failure-notification@.service`) that alerts on service crashes across your fleet.
+- **Topic Generation Utility**: Built-in CLI tool (`generate-topic.sh`) to produce unique, high-entropy NTFY topic names.
 
 ## Pipeline Architecture & Decoupled Design
 
