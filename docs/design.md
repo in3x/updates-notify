@@ -28,7 +28,8 @@ graph TD
         C -->|Yes| D[Dispatch NTFY: Updates Available + Action Button]
         C -->|No| E[Log: Clean & Ping Healthchecks]
     end
-
+```    
+```mermaid
     subgraph P2 ["2. Conditional Reboot Pipeline (Daily @ 03:00)"]
         F[conditional-reboot.timer] --> G[conditional-reboot.sh]
         G --> H{Reboot Required?}
@@ -63,7 +64,7 @@ The pipeline guarantees that conditional reboots and package upgrades never coll
    - If any upgrade or check is active, `conditional-reboot.sh` logs `Blocked process is active. Deferring reboot.` and defers without scheduling a restart.
 
 2. **Filesystem Lock Inspection**:
-   - `conditional-reboot.sh` checks package manager lock files (such as `/var/lib/dpkg/lock-frontend`, `/var/lib/apt/lists/lock`, `/var/run/dnf.pid`) using `fuser`. If a lock is held by an active process, reboot is deferred.
+   - `conditional-reboot.sh` checks package manager lock files (such as `/var/lib/dpkg/lock-frontend` on Debian/Ubuntu, `/run/lock/libdnf5` on RHEL 10, `/var/lib/dnf/rpmdb_lock.pid` and `/var/cache/dnf/*_lock.pid` on RHEL 9) using `fuser`. If a lock is held by an active process, reboot is deferred.
 
 3. **Pre-Reboot Grace Delay**:
    - When all safety checks pass, `conditional-reboot.sh` dispatches a high-priority `🔄 Reboot Scheduled` notification and schedules `shutdown -r +5` (5-minute countdown).
@@ -95,7 +96,7 @@ The pipeline supports remote action buttons via NTFY (e.g. `[🚀 Apply All Upda
 To enable zero-touch bootstrapping across heterogeneous fleets, `deploy.sh` automates the dependency and repository resolution process:
 
 - **RHEL Ecosystem (RHEL 9+, CentOS Stream, Rocky Linux, AlmaLinux)**:
-  - **Dynamic Version Detection**: Extracts the active major version at runtime using `rpm -E %rhel` rather than hardcoding distribution releases.
+  - **Dynamic Version Detection**: Evaluates the native `%rhel` packaging macro via `rpm -E %rhel` with integer validation, cleanly extracting the major version (`9`, `10`, etc.) across bare-metal and virtual Enterprise Linux hosts.
   - **CodeReady Linux Builder (CRB)**: Automatically activates the CRB / PowerTools repository, which is required to satisfy upstream package dependencies for EPEL tools:
     - On registered RHEL nodes: `subscription-manager repos --enable codeready-builder-for-rhel-${rhel_ver}-$(arch)-rpms`
     - On RHEL clones / standard DNF systems: `crb enable` or `dnf config-manager --set-enabled crb`

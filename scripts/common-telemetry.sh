@@ -81,7 +81,11 @@ failure_handler() {
 
 get_pending_updates() {
     local raw=""
-    if command -v apt-get >/dev/null 2>&1; then
+    if [[ -f /etc/debian_version ]] && command -v apt-get >/dev/null 2>&1; then
+        raw=$(apt-get -s -o Debug::NoLocking=true dist-upgrade 2>/dev/null | awk '/^Inst / {print $2}')
+    elif [[ -f /etc/redhat-release ]] && command -v dnf >/dev/null 2>&1; then
+        raw=$(dnf check-update -q 2>/dev/null | awk '/^[a-zA-Z0-9]/ {print $1}')
+    elif command -v apt-get >/dev/null 2>&1; then
         raw=$(apt-get -s -o Debug::NoLocking=true dist-upgrade 2>/dev/null | awk '/^Inst / {print $2}')
     elif command -v dnf >/dev/null 2>&1; then
         raw=$(dnf check-update -q 2>/dev/null | awk '/^[a-zA-Z0-9]/ {print $1}')

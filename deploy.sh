@@ -16,16 +16,34 @@ fi
 echo "-> Checking and ensuring prerequisites are installed..."
 
 if [[ -f /etc/redhat-release ]]; then
+    rhel_ver=$(rpm -E %rhel 2>/dev/null)
+
+    if [[ ! "${rhel_ver}" =~ ^[0-9]+$ ]]; then
+        echo "Error: Unable to detect valid RHEL major version via 'rpm -E %rhel'." >&2
+        echo "Cannot safely configure repositories and dependencies. Aborting deployment." >&2
+        exit 1
+    fi
+
+    echo "   Detected RHEL major version: ${rhel_ver}"
+
     MISSING_RHEL_PKGS=()
-    command -v needs-restarting >/dev/null 2>&1 || MISSING_RHEL_PKGS+=("dnf-utils")
-    command -v dnf-automatic >/dev/null 2>&1 || MISSING_RHEL_PKGS+=("dnf-automatic")
+    if ! command -v needs-restarting >/dev/null 2>&1 && ! (command -v dnf >/dev/null 2>&1 && dnf needs-restarting --help >/dev/null 2>&1); then
+        if (( rhel_ver >= 10 )); then
+            MISSING_RHEL_PKGS+=("dnf-plugins-core")
+        else
+            MISSING_RHEL_PKGS+=("dnf-utils")
+        fi
+    fi
+
+    if (( rhel_ver < 10 )); then
+        command -v dnf-automatic >/dev/null 2>&1 || MISSING_RHEL_PKGS+=("dnf-automatic")
+    fi
+
     command -v etckeeper >/dev/null 2>&1 || MISSING_RHEL_PKGS+=("etckeeper")
     command -v git >/dev/null 2>&1 || MISSING_RHEL_PKGS+=("git")
 
     if [[ ${#MISSING_RHEL_PKGS[@]} -gt 0 ]]; then
         echo "   Missing package(s): ${MISSING_RHEL_PKGS[*]}"
-        rhel_ver=$(rpm -E %rhel 2>/dev/null || echo "9")
-        echo "   Detected RHEL major version: ${rhel_ver}"
 
         # Enable CodeReady Linux Builder (CRB) repository
         if command -v subscription-manager >/dev/null 2>&1; then
