@@ -8,7 +8,6 @@ Unintentional, cloud-independent micro-automation stack for system updates for b
 - **Security and Outstanding Updates Monitoring**: Scans repositories daily for pending upgrades with detailed package counts and summaries.
 - **Interactive NTFY Action Buttons**: Trigger remote, non-interactive package upgrades (`[🚀 Apply All Updates]`) directly from mobile or desktop notifications without opening SSH. Design notes are found at: [Notification Timing & NTFY Action Buttons](docs/design.md#notification-timing-ntfy-action=buttons)
 - **Safety-First Reboot Orchestration**: Enforces strict maintenance windows, verifies absence of active non-root SSH users, checks blocked background tasks, and verifies package manager locks before restarting. Design notes are found at: [Collision Prevention & Orchestration Safety](docs/design.md#collision-prevention--orchestration-safety).
-
 - **5-Minute Pre-Reboot Grace Period**: Broadcasts high-priority alert notifications before reboot, giving operators time to cancel (`shutdown -c`) if needed.
 - **Package-Level Audit Logging**: Identifies and logs the specific packages triggering the reboot need (from `/run/reboot-required.pkgs` or `needs-restarting`).
 - **Failure Quarantine & Alerting**: Halts automated reboots if prior package installations failed, dispatching urgent alerts to NTFY and Healthchecks.io.
@@ -29,11 +28,23 @@ Follow these steps to deploy the pipeline across target Linux nodes.
 
 If you prefer to pre-install dependencies manually before deploying:
 
-* **RHEL 9+ Hosts:** Ensure both `dnf-utils` (for `needs-restarting`) and `dnf-automatic` are installed:
+* **RHEL 9 / 10+ Hosts:**
   ```bash
-  sudo dnf install -y dnf-utils dnf-automatic
-  sudo subscription-manager repos --enable codeready-builder-for-rhel-9-$(arch)-rpms
-  sudo dnf install https://dl.fedoraproject.org/pub/epel/epel-release-latest-9.noarch.rpm
+  # Dynamically resolve RHEL major version (9, 10, etc.)
+  rhel_ver=$(rpm -E %rhel)
+
+  # Enable CodeReady Linux Builder (CRB)
+  sudo subscription-manager repos --enable codeready-builder-for-rhel-${rhel_ver}-$(arch)-rpms
+
+  # Install EPEL (for etckeeper)
+  sudo dnf install -y https://dl.fedoraproject.org/pub/epel/epel-release-latest-${rhel_ver}.noarch.rpm
+
+  # Install package manager utilities
+  if (( rhel_ver >= 10 )); then
+      sudo dnf install -y dnf-plugins-core etckeeper git
+  else
+      sudo dnf install -y dnf-utils dnf-automatic etckeeper git
+  fi
   ```
 * **Ubuntu / Debian Hosts:** Ensure `unattended-upgrades` is installed:
   ```bash
