@@ -12,42 +12,82 @@ if [[ $EUID -ne 0 ]]; then
    exit 1
 fi
 
-# 2. Check Prerequisites for RHEL/Ubuntu (Hard Exit if Missing)
+# 2. Check and Automatically Install Prerequisites (RHEL/Ubuntu)
+echo "-> Checking and ensuring prerequisites are installed..."
+
 if [[ -f /etc/redhat-release ]]; then
     MISSING_RHEL_PKGS=()
-    if ! command -v needs-restarting >/dev/null 2>&1; then
-        MISSING_RHEL_PKGS+=("dnf-utils")
-    fi
-    if ! command -v dnf-automatic >/dev/null 2>&1; then
-        MISSING_RHEL_PKGS+=("dnf-automatic")
-    fi
+    command -v needs-restarting >/dev/null 2>&1 || MISSING_RHEL_PKGS+=("dnf-utils")
+    command -v dnf-automatic >/dev/null 2>&1 || MISSING_RHEL_PKGS+=("dnf-automatic")
+    command -v etckeeper >/dev/null 2>&1 || MISSING_RHEL_PKGS+=("etckeeper")
+    command -v git >/dev/null 2>&1 || MISSING_RHEL_PKGS+=("git")
 
     if [[ ${#MISSING_RHEL_PKGS[@]} -gt 0 ]]; then
-        echo "Error: Missing required RHEL package(s): ${MISSING_RHEL_PKGS[*]}" >&2
-        echo "Please install them before deploying: sudo dnf install -y ${MISSING_RHEL_PKGS[*]}" >&2
-        exit 1
+        echo "   Missing package(s): ${MISSING_RHEL_PKGS[*]}"
+        rhel_ver=$(rpm -E %rhel 2>/dev/null || echo "9")
+        echo "   Detected RHEL major version: ${rhel_ver}"
+
+        # Enable CodeReady Linux Builder (CRB) repository
+        if command -v subscription-manager >/dev/null 2>&1; then
+            echo "   Enabling CodeReady Linux Builder (CRB) via subscription-manager..."
+            subscription-manager repos --enable "codeready-builder-for-rhel-${rhel_ver}-$(arch)-rpms" 2>/dev/null || true
+        fi
+
+        if command -v crb >/dev/null 2>&1; then
+            FORCE_DNF=1 /usr/bin/crb enable 2>/dev/null || true
+        elif command -v dnf >/dev/null 2>&1; then
+            dnf config-manager --set-enabled crb 2>/dev/null || dnf config-manager --set-enabled powertools 2>/dev/null || true
+        fi
+
+        # Provision EPEL if needed for etckeeper
+        if ! rpm -q epel-release >/dev/null 2>&1; then
+            echo "   Configuring EPEL repository..."
+            dnf install -y epel-release 2>/dev/null || \
+            dnf install -y "https://dl.fedoraproject.org/pub/epel/epel-release-latest-${rhel_ver}.noarch.rpm" 2>/dev/null || true
+        fi
+
+        echo "   Installing required dependencies (${MISSING_RHEL_PKGS[*]})..."
+        dnf install -y "${MISSING_RHEL_PKGS[@]}"
+    else
+        echo "   All required RHEL packages are already installed."
     fi
+
 elif [[ -f /etc/debian_version ]]; then
-    if ! command -v unattended-upgrade >/dev/null 2>&1; then
-        echo "Error: 'unattended-upgrades' package is not installed." >&2
-        echo "Please install it before deploying: sudo apt-get install -y unattended-upgrades" >&2
-        exit 1
+    MISSING_DEB_PKGS=()
+    command -v unattended-upgrade >/dev/null 2>&1 || MISSING_DEB_PKGS+=("unattended-upgrades")
+    command -v etckeeper >/dev/null 2>&1 || MISSING_DEB_PKGS+=("etckeeper")
+    command -v git >/dev/null 2>&1 || MISSING_DEB_PKGS+=("git")
+
+    if [[ ${#MISSING_DEB_PKGS[@]} -gt 0 ]]; then
+        echo "   Missing package(s): ${MISSING_DEB_PKGS[*]}"
+        echo "   Installing required dependencies via apt-get..."
+        export DEBIAN_FRONTEND=noninteractive
+        apt-get update -qq
+        apt-get install -y "${MISSING_DEB_PKGS[@]}"
+    else
+        echo "   All required Debian/Ubuntu packages are already installed."
     fi
 fi
 
-# 3. Check for etckeeper
-if ! command -v etckeeper >/dev/null 2>&1; then
-    echo ""
-    echo "⚠️  WARNING: 'etckeeper' is not installed on this system."
-    echo "   Using etckeeper is recommended to track /etc changes in version control."
-    read -r -p "   Proceed deployment without etckeeper? [y/N]: " etckeeper_choice
-    if [[ ! "${etckeeper_choice}" =~ ^[Yy]$ ]]; then
-        echo "   Deployment aborted by user. Install etckeeper and run deploy.sh again." >&2
-        exit 1
+# 3. Safe etckeeper Inspection and Initialization
+if command -v etckeeper >/dev/null 2>&1; then
+    # Verify if etckeeper repository is already initialized (do not wipe existing git repo)
+    if [[ -d /etc/.git || -d /etc/.hg || -d /etc/.bzr ]]; then
+        echo "-> Existing etckeeper repository detected. Preserving git history and staging current /etc..."
+        etckeeper pre-install || true
+    else
+        echo "-> etckeeper installed but uninitialized. Initializing new repository..."
+        etckeeper init
+        if git -C /etc rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+            if ! git -C /etc config user.name >/dev/null 2>&1; then
+                git -C /etc config user.name "root"
+                git -C /etc config user.email "root@${HOSTNAME}"
+            fi
+        fi
+        etckeeper commit "Initial etckeeper commit prior to updates-notify deployment" || true
     fi
 else
-    echo "-> etckeeper detected. Staging /etc state prior to installation..."
-    etckeeper pre-install || true
+    echo "⚠️  etckeeper is not available. Continuing deployment without /etc tracking..."
 fi
 
 # Detect repository root directory
