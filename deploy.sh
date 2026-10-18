@@ -41,6 +41,8 @@ if [[ -f /etc/redhat-release ]]; then
 
     command -v etckeeper >/dev/null 2>&1 || MISSING_RHEL_PKGS+=("etckeeper")
     command -v git >/dev/null 2>&1 || MISSING_RHEL_PKGS+=("git")
+    command -v openssl >/dev/null 2>&1 || MISSING_RHEL_PKGS+=("openssl")
+    command -v curl >/dev/null 2>&1 || MISSING_RHEL_PKGS+=("curl")
 
     if [[ ${#MISSING_RHEL_PKGS[@]} -gt 0 ]]; then
         echo "   Missing package(s): ${MISSING_RHEL_PKGS[*]}"
@@ -75,6 +77,8 @@ elif [[ -f /etc/debian_version ]]; then
     command -v unattended-upgrade >/dev/null 2>&1 || MISSING_DEB_PKGS+=("unattended-upgrades")
     command -v etckeeper >/dev/null 2>&1 || MISSING_DEB_PKGS+=("etckeeper")
     command -v git >/dev/null 2>&1 || MISSING_DEB_PKGS+=("git")
+    command -v openssl >/dev/null 2>&1 || MISSING_DEB_PKGS+=("openssl")
+    command -v curl >/dev/null 2>&1 || MISSING_DEB_PKGS+=("curl")
 
     if [[ ${#MISSING_DEB_PKGS[@]} -gt 0 ]]; then
         echo "   Missing package(s): ${MISSING_DEB_PKGS[*]}"
@@ -199,7 +203,7 @@ backup_and_rotate_config() {
     fi
 }
 
-# Merge New Configuration Keys from Example Template into Destination File
+# Merge New Configuration Keys & Reference Defaults into Working Config File
 merge_config_settings() {
     local example="$1"
     local dest="$2"
@@ -209,52 +213,141 @@ merge_config_settings() {
         return 0
     fi
 
-    local -a missing_blocks=()
-    local pending_comment=""
+    local -a tmpl_vars=()
+    local -A tmpl_assign=()
+    local -A tmpl_optional=()
+    local -A tmpl_comments=()
 
+    local pending_comment=""
     while IFS= read -r line || [[ -n "${line}" ]]; do
-        if [[ "${line}" =~ ^[[:space:]]*# ]]; then
+        if [[ "${line}" =~ ^[[:space:]]*#[[:space:]]*([A-Za-z_][A-Za-z0-9_]*)= ]]; then
+            local vname="${BASH_REMATCH[1]}"
+            local raw_assign
+            raw_assign="$(echo "${line}" | sed -E 's/^[[:space:]]*#[[:space:]]*//')"
+            tmpl_vars+=("${vname}")
+            tmpl_assign["${vname}"]="${raw_assign}"
+            tmpl_optional["${vname}"]=1
+            tmpl_comments["${vname}"]="${pending_comment}"
+            pending_comment=""
+        elif [[ "${line}" =~ ^[[:space:]]*([A-Za-z_][A-Za-z0-9_]*)= ]]; then
+            local vname="${BASH_REMATCH[1]}"
+            local raw_assign
+            raw_assign="$(echo "${line}" | sed -E 's/^[[:space:]]*//')"
+            tmpl_vars+=("${vname}")
+            tmpl_assign["${vname}"]="${raw_assign}"
+            tmpl_optional["${vname}"]=0
+            tmpl_comments["${vname}"]="${pending_comment}"
+            pending_comment=""
+        elif [[ "${line}" =~ ^[[:space:]]*# ]]; then
             if [[ -z "${pending_comment}" ]]; then
                 pending_comment="${line}"
             else
                 pending_comment="${pending_comment}"$'\n'"${line}"
             fi
-            continue
         elif [[ "${line}" =~ ^[[:space:]]*$ ]]; then
-            pending_comment=""
-            continue
-        fi
-
-        if [[ "${line}" =~ ^[[:space:]]*([A-Za-z_][A-Za-z0-9_]*)= ]]; then
-            local var_name="${BASH_REMATCH[1]}"
-            if ! grep -qE "^[[:space:]]*#?[[:space:]]*${var_name}=" "${dest}"; then
-                local block=""
-                if [[ -n "${pending_comment}" ]]; then
-                    block="${pending_comment}"$'\n'
-                fi
-                block="${block}${line}"
-                missing_blocks+=("${block}")
-                echo "   [MERGE] Detected new setting '${var_name}' from template."
-            fi
-            pending_comment=""
-        else
             pending_comment=""
         fi
     done < "${example}"
 
-    if [[ ${#missing_blocks[@]} -gt 0 ]]; then
-        backup_and_rotate_config "${dest}" "${max_backups}"
+    local -a new_dest_lines=()
+    local -A seen_in_dest=()
+    local dest_modified=0
+    local prev_was_default_for=""
 
-        for block in "${missing_blocks[@]}"; do
-            {
-                echo ""
-                echo "${block}"
-            } >> "${dest}"
-        done
-        echo "   [MERGED] ${#missing_blocks[@]} new setting(s) appended to ${dest} (preserving all existing values & comments)."
+    while IFS= read -r line || [[ -n "${line}" ]]; do
+        # 1. Existing '# Default: VAR=...' line
+        if [[ "${line}" =~ ^[[:space:]]*#[[:space:]]*Default:[[:space:]]*([A-Za-z_][A-Za-z0-9_]*)= ]]; then
+            local vname="${BASH_REMATCH[1]}"
+            if [[ -n "${tmpl_assign[${vname}]:-}" ]]; then
+                local expected_default="# Default: ${tmpl_assign[${vname}]}"
+                if [[ "${line}" != "${expected_default}" ]]; then
+                    new_dest_lines+=("${expected_default}")
+                    dest_modified=1
+                    echo "   [UPDATE] Updated reference default for '${vname}'."
+                else
+                    new_dest_lines+=("${line}")
+                fi
+                prev_was_default_for="${vname}"
+                continue
+            fi
+        fi
+
+        # 2. Active assignment: VAR=...
+        if [[ "${line}" =~ ^[[:space:]]*([A-Za-z_][A-Za-z0-9_]*)= ]]; then
+            local vname="${BASH_REMATCH[1]}"
+            seen_in_dest["${vname}"]=1
+
+            # If template defines this variable, ensure the default comment precedes it
+            if [[ -n "${tmpl_assign[${vname}]:-}" ]]; then
+                if [[ "${prev_was_default_for}" != "${vname}" ]]; then
+                    new_dest_lines+=("# Default: ${tmpl_assign[${vname}]}")
+                    dest_modified=1
+                    echo "   [MERGE] Placed reference default above active '${vname}'."
+                fi
+            fi
+            new_dest_lines+=("${line}")
+            # Ensure blank line separation after the variable assignment
+            new_dest_lines+=("")
+            dest_modified=1
+            prev_was_default_for=""
+            continue
+        fi
+
+        # 3. Commented assignment: # VAR=...
+        if [[ "${line}" =~ ^[[:space:]]*#[[:space:]]*([A-Za-z_][A-Za-z0-9_]*)= ]]; then
+            local vname="${BASH_REMATCH[1]}"
+            seen_in_dest["${vname}"]=1
+        fi
+
+        # Avoid consecutive redundant blank lines
+        if [[ "${line}" =~ ^[[:space:]]*$ ]]; then
+            if (( ${#new_dest_lines[@]} > 0 )) && [[ "${new_dest_lines[-1]}" == "" ]]; then
+                continue
+            fi
+            new_dest_lines+=("")
+            continue
+        fi
+
+        new_dest_lines+=("${line}")
+        prev_was_default_for=""
+    done < "${dest}"
+
+    # 4. Check for any template variables missing from dest
+    for vname in "${tmpl_vars[@]}"; do
+        if [[ -z "${seen_in_dest[${vname}]:-}" ]]; then
+            echo "   [MERGE] Adding new setting '${vname}' from template..."
+            dest_modified=1
+            if (( ${#new_dest_lines[@]} > 0 )) && [[ "${new_dest_lines[-1]}" != "" ]]; then
+                new_dest_lines+=("")
+            fi
+            if [[ -n "${tmpl_comments[${vname}]:-}" ]]; then
+                while IFS= read -r c_line; do
+                    new_dest_lines+=("${c_line}")
+                done <<< "${tmpl_comments[${vname}]}"
+            fi
+            if (( tmpl_optional[${vname}] == 1 )); then
+                new_dest_lines+=("# ${tmpl_assign[${vname}]}")
+            else
+                new_dest_lines+=("# Default: ${tmpl_assign[${vname}]}")
+                new_dest_lines+=("${tmpl_assign[${vname}]}")
+            fi
+            new_dest_lines+=("")
+        fi
+    done
+
+    # 5. Save changes safely if modified
+    local tmp_file
+    tmp_file=$(mktemp)
+    printf "%s\n" "${new_dest_lines[@]}" > "${tmp_file}"
+
+    if ! cmp -s "${tmp_file}" "${dest}"; then
+        backup_and_rotate_config "${dest}" "${max_backups}"
+        install -m 0600 -o root -g root "${tmp_file}" "${dest}"
+        echo "   [MERGED] Config updated with defaults and blank-line spacing while strictly preserving site values & comments."
     else
-        echo "   [UNCHANGED] ${dest} contains all template settings."
+        echo "   [UNCHANGED] ${dest} contains all template settings and defaults."
     fi
+    rm -f "${tmp_file}"
 }
 
 # 4. Install Executable Scripts
