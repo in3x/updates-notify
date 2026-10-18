@@ -86,6 +86,8 @@ The pipeline supports remote action buttons via NTFY (e.g. `[🚀 Apply All Upda
   When the action button triggers `apply-all-updates.sh`, the script evaluates package status live against current repositories.
 - **Reboot Independence**:
   If a reboot occurs between receiving the notification and pressing the button, the system state remains clean (since `/run` flags reside on `tmpfs`). Tapping the button post-reboot simply queries the package manager; if updates were already applied, it safely reports that 0 packages need upgrading.
+- **Publisher Verification (ACL)**:
+  `remote-update-listener.sh` connects to the structured `/json` stream instead of `/raw`. This filters out keepalive/handshake traffic and enables strict sender authentication via `NTFY_VALID_USER`. If configured, any command not published by the authorized account is rejected with a security log warning.
 
 ---
 
