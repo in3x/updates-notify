@@ -103,9 +103,9 @@ To enable zero-touch bootstrapping across heterogeneous fleets, `deploy.sh` auto
     - On registered RHEL nodes: `subscription-manager repos --enable codeready-builder-for-rhel-${rhel_ver}-$(arch)-rpms`
     - On RHEL clones / standard DNF systems: `crb enable` or `dnf config-manager --set-enabled crb`
   - **EPEL Provisioning**: Automatically installs the Extra Packages for Enterprise Linux (EPEL) configuration package if not already registered, ensuring `etckeeper` is installable.
-  - **Core Tools**: Resolves and installs missing core requirements (`dnf-utils`, `dnf-automatic`, `etckeeper`, `git`).
+  - **Core Tools**: Resolves and installs missing core requirements (`dnf-utils` or `dnf-plugins-core`, `dnf-automatic`, `etckeeper`, `git`, `openssl`, `curl`).
 - **Debian / Ubuntu Ecosystem (Ubuntu 22.04+, Debian 12+)**:
-  - Automatically updates package indexes and installs missing dependencies (`unattended-upgrades`, `etckeeper`, `git`) using `DEBIAN_FRONTEND=noninteractive`.
+  - Automatically updates package indexes and installs missing dependencies (`unattended-upgrades`, `etckeeper`, `git`, `openssl`, `curl`) using `DEBIAN_FRONTEND=noninteractive`.
 
 ---
 
@@ -134,3 +134,13 @@ graph TD
 2. **Pre-Deployment Staging**: If an initialized repository is detected, `deploy.sh` calls `etckeeper pre-install` prior to writing any files, ensuring that any uncommitted local system modifications are staged.
 3. **Safe First-Time Initialization**: If `etckeeper` was newly installed or never initialized, the script initializes the repository and creates an initial baseline commit before applying pipeline changes.
 4. **Post-Deployment Audit Commit**: Once deployment completes successfully, `etckeeper post-install` commits the exact file additions and permission changes made by `deploy.sh`.
+
+---
+
+### 3. Idempotent Configuration Merging & Default Reference Annotations
+
+To keep production nodes synchronized with upstream configuration template improvements without clobbering host-specific values:
+- **Reference Default Commenting**: When a setting exists in the template (`99-local.conf.example`), `deploy.sh` ensures that exactly one `# Default: <template_setting>` line is placed directly above the node's local active assignment.
+- **Upstream Default Sync**: If an upstream default changes in a future release, subsequent deployments update the `# Default:` comment to reflect the new reference value while strictly leaving the host's custom setting below it untouched.
+- **New & Optional Settings**: Any newly introduced parameters (including commented optional parameters like `NTFY_CMD_TOPIC` or `NTFY_VALID_USER`) are automatically appended with their accompanying documentation blocks.
+- **Pre-Modification Backups**: Creates timestamped backups (`.YYYYMMDD-HHMMSS.bak`, retaining up to 3) before making any modifications.

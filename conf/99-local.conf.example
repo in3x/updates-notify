@@ -11,6 +11,9 @@ HC_PING_URL="https://hc-ping.com/your-uuid-here"
 # Optional: Restrict remote action triggers to a verified publisher username (NTFY JSON stream ACL)
 # NTFY_VALID_USER="your-ntfy-username"
 
+# Optional: Shared cryptographic secret for HMAC-SHA256 signing of remote action buttons
+# Generate with: openssl rand -hex 32
+# FLEET_SECRET="your-32-byte-hex-secret-here"
 
 # Maintenance Constraints & Safety Locks
 MAINTENANCE_WINDOW_START="02:00"

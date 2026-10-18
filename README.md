@@ -13,6 +13,7 @@ Unintentional, cloud-independent micro-automation stack for system updates for b
 - **Failure Quarantine & Alerting**: Halts automated reboots if prior package installations failed, dispatching urgent alerts to NTFY and Healthchecks.io.
 - **Decoupled Pipelines**: Separates pending update scanning from conditional reboot evaluation, preventing false alarms and execution collisions. Design notes are found at: [Pipeline Architecture & Decoupled Design documentation](docs/design.md#pipeline-architecture--decoupled-design).
 - **Safe Configuration Deployment**: `deploy.sh` merges new template options into active configs without overwriting local customizations, creating timestamped backups (`.YYYYMMDD-HHMMSS.bak`, Configurable backup retention count.).
+- **Cryptographic Remote Security**: HMAC-SHA256 signed action buttons, one-time anti-replay nonce tracking, 24-hour expiration TTL, and `clear=true` notification auto-dismissal allow safe execution over public notification channels. See the [Security Architecture & Hardening Guide](docs/security.md).
 - **Systemd Failure Monitoring**: Generic systemd failure notification unit (`failure-notification@.service`) that alerts on service crashes across your fleet.
 - **Topic Generation Utility**: Built-in CLI tool (`generate-topic.sh`) to produce unique, high-entropy NTFY topic names.
 
@@ -39,16 +40,16 @@ If you prefer to pre-install dependencies manually before deploying:
   # Install EPEL (for etckeeper)
   sudo dnf install -y https://dl.fedoraproject.org/pub/epel/epel-release-latest-${rhel_ver}.noarch.rpm
 
-  # Install package manager utilities
+  # Install package manager utilities and cryptographic tools
   if (( rhel_ver >= 10 )); then
-      sudo dnf install -y dnf-plugins-core etckeeper git
+      sudo dnf install -y dnf-plugins-core etckeeper git openssl curl
   else
-      sudo dnf install -y dnf-utils dnf-automatic etckeeper git
+      sudo dnf install -y dnf-utils dnf-automatic etckeeper git openssl curl
   fi
   ```
-* **Ubuntu / Debian Hosts:** Ensure `unattended-upgrades` is installed:
+* **Ubuntu / Debian Hosts:** Ensure `unattended-upgrades`, `etckeeper`, `openssl`, and `curl` are installed:
   ```bash
-  sudo apt-get install -y unattended-upgrades
+  sudo apt-get install -y unattended-upgrades etckeeper git openssl curl
   ```
 
 ---
@@ -136,7 +137,7 @@ Verify notification dispatches and test conditional reboot evaluation under simu
 
 ```bash
 # 1. Test manual telemetry dispatch
-/usr/local/bin/systemd-failure-notify.sh "test-service.service"
+sudo /usr/local/bin/systemd-failure-notify.sh "test-service.service"
 
 # 2. Verify telemetry dispatch in system logs
 sudo journalctl -t conditional-reboot -n 20

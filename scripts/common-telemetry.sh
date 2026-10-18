@@ -4,8 +4,13 @@
 NTFY_TOPIC=""
 HC_PING_URL=""
 
-if [[ -f /etc/conditional-reboot.conf.d/99-local.conf ]]; then
-    source /etc/conditional-reboot.conf.d/99-local.conf
+CONF_FILE="/etc/conditional-reboot.conf.d/99-local.conf"
+
+if [[ -f "${CONF_FILE}" ]]; then
+    source "${CONF_FILE}"
+elif [[ $EUID -ne 0 ]]; then
+    logger -t "telemetry" "Warning: Script executed as non-root (EUID=$EUID); unable to read ${CONF_FILE}."
+    echo "Warning: Running as non-root. Cannot access ${CONF_FILE}; please run with 'sudo'." >&2
 fi
 
 ping_hc() {
@@ -53,6 +58,26 @@ send_ntfy() {
     fi
 }
 
+compute_payload_hmac() {
+    local secret="$1"
+    local hostname="$2"
+    local timestamp="$3"
+    local seed="$4"
+    local rounds="${5:-16}"
+
+    local data="${hostname}:${timestamp}:${seed}"
+    local digest
+    digest="$(echo -n "${data}" | openssl dgst -sha256 -hmac "${secret}" 2>/dev/null | awk '{print $2}')"
+
+    # Sequential round stretching (similar to key derivation rounds in ssh-keygen -a)
+    local r
+    for (( r=2; r<=rounds; r++ )); do
+        digest="$(echo -n "${digest}:${seed}:${r}" | openssl dgst -sha256 -hmac "${secret}" 2>/dev/null | awk '{print $2}')"
+    done
+
+    echo "${digest}"
+}
+
 get_apply_updates_action() {
     local cmd_topic="${NTFY_CMD_TOPIC:-${NTFY_TOPIC:+${NTFY_TOPIC}-cmd}}"
     if [[ -z "${cmd_topic}" ]]; then
@@ -60,7 +85,23 @@ get_apply_updates_action() {
         return 0
     fi
 
-    local action="http, 🚀 Apply All Updates, ${NTFY_URL:-https://ntfy.sh}/${cmd_topic}, body=apply_all_updates, clear=true"
+    local host_tag="$(hostname -s 2>/dev/null || echo "${HOSTNAME}")"
+    local body="apply_updates:${host_tag}"
+
+    # Generate unpredictable, multi-round HMAC signature if FLEET_SECRET is configured
+    if [[ -n "${FLEET_SECRET:-}" ]]; then
+        local ts
+        ts="$(date +%s)"
+        local seed
+        seed="$(openssl rand -hex 8 2>/dev/null || od -vN 8 -An -tx1 /dev/urandom | tr -d ' \n')"
+        local sig
+        sig="$(compute_payload_hmac "${FLEET_SECRET}" "${host_tag}" "${ts}" "${seed}" 16)"
+        if [[ -n "${sig}" && -n "${seed}" ]]; then
+            body="apply_updates:${host_tag}:${ts}:${seed}:${sig}"
+        fi
+    fi
+
+    local action="http, 🚀 Apply Updates (${host_tag}), ${NTFY_URL:-https://ntfy.sh}/${cmd_topic}, body=${body}, clear=true"
     if [[ -n "${NTFY_TOKEN:-}" ]]; then
         action="${action}, headers.Authorization=Bearer ${NTFY_TOKEN}"
     fi
