@@ -141,7 +141,7 @@ graph TD
 
 To keep production nodes synchronized with upstream configuration template improvements without clobbering host-specific values:
 - **Site-Specific Group Staging (`site-conf/<system-group-name>/`)**: Host and group configurations are staged locally in `site-conf/<group>/99-local.conf` and excluded from version control via `.gitignore`.
-- **Automated Configuration Generator (`generate-topic.sh`)**: Generates pre-populated site configurations containing a unique NTFY topic, a 256-bit `FLEET_SECRET`, and publisher ACL user.
+- **Automated Configuration Generator (`generate-topic.sh`)**: Generates pre-populated site configurations containing two separate, independent cryptographic items: a high-entropy NTFY topic name (for public endpoints) and an isolated 256-bit `FLEET_SECRET` (for private HMAC-SHA256 payload signing).
 - **Group-Targeted Deployments (`deploy.sh <system-group-name>`)**: Extracts site configuration from `site-conf/<group>/` and merges it into the operational `/etc/conditional-reboot.conf.d/99-local.conf`.
 - **Reference Default Commenting**: When a setting exists in the template (`99-local.conf.example`), `deploy.sh` ensures that exactly one `# Default: <template_setting>` line is placed directly above the node's local active assignment, separated by clean blank-line spacing.
 - **Upstream Default Sync**: If an upstream default changes in a future release, subsequent deployments update the `# Default:` comment to reflect the new reference value while strictly leaving the host's custom setting below it untouched.

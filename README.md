@@ -14,8 +14,9 @@ Unintentional, cloud-independent micro-automation stack for system updates for b
 - **Decoupled Pipelines**: Separates pending update scanning from conditional reboot evaluation, preventing false alarms and execution collisions. Design notes are found at: [Pipeline Architecture & Decoupled Design documentation](docs/design.md#pipeline-architecture--decoupled-design).
 - **Safe Configuration Deployment**: `deploy.sh` merges new template options into active configs without overwriting local customizations, creating timestamped backups (`.YYYYMMDD-HHMMSS.bak`, Configurable backup retention count.).
 - **Cryptographic Remote Security**: HMAC-SHA256 signed action buttons, one-time anti-replay nonce tracking, 24-hour expiration TTL, and `clear=true` notification auto-dismissal allow safe execution over public notification channels. See the [Security Architecture & Hardening Guide](docs/security.md).
+- **Dual-Key Secret Rotation**: Seamless zero-downtime routine rotation (`--rotate-secret`) and immediate-lockout emergency rotation (`--rotate-emergency`) built into `generate-topic.sh`.
 - **Systemd Failure Monitoring**: Generic systemd failure notification unit (`failure-notification@.service`) that alerts on service crashes across your fleet.
-- **Topic Generation Utility**: Built-in CLI tool (`generate-topic.sh`) to produce unique, high-entropy NTFY topic names.
+- **Topic Generation Utility**: Built-in CLI tool (`generate-topic.sh`) to produce unique, high-entropy NTFY topic names and site configurations.
 
 ---
 
@@ -55,7 +56,7 @@ If you prefer to pre-install dependencies manually before deploying:
 ---
 
 ### 1. Generate Site Configuration
-Use `generate-topic.sh` to generate a site-specific configuration file with a unique topic, a 256-bit `FLEET_SECRET`, and your NTFY username:
+Use `generate-topic.sh` to generate a site configuration populated with two distinct, independent items: a unique public NTFY topic name (for URLs) and a private 256-bit `FLEET_SECRET` (for HMAC signing, never shared or derived from the topic):
 
 ```bash
 # Syntax: ./scripts/generate-topic.sh <system-group-name> [ntfy-valid-user] [output-file]
@@ -71,6 +72,17 @@ nano site-conf/homelab/99-local.conf
 ```
 
 *(Note: `site-conf/*` is excluded via `.gitignore` so your secrets and tokens are never checked into version control.)*
+
+#### Rotating Secrets
+Rotate keys periodically or in emergencies using `generate-topic.sh`:
+
+```bash
+# Routine zero-downtime rotation (24h grace window for pending buttons):
+./scripts/generate-topic.sh --rotate-secret homelab
+
+# Emergency rotation (immediate revocation and lockout):
+./scripts/generate-topic.sh --rotate-emergency homelab
+```
 
 ---
 
