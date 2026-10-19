@@ -8,6 +8,7 @@ Design notes.
 - `scripts/apply-all-updates.sh`: Non-interactive full package upgrade runner with real-time telemetry.
 - `scripts/remote-update-listener.sh`: Background listener daemon for two-way NTFY action button triggers.
 - `scripts/apt-post-install-telemetry.sh`: Post-install execution hook for APT-based hosts.
+- `scripts/post-boot-notify.sh`: Startup service confirming boot success, running kernel, and uptime.
 - `scripts/generate-topic.sh`: Utility to generate unique, random NTFY topic names.
 - `scripts/systemd-failure-notify.sh`: Systemd unit failure notification dispatcher.
 - `units/`: Timer and service definitions for systemd reboot orchestration, update checking, digests, and remote listeners.
@@ -52,6 +53,47 @@ graph TD
 1. **Systems with Available Updates That Do Not Require a Reboot**: A host can have pending package upgrades without needing a restart. Decoupling ensures you are alerted to pending updates without false reboot warnings.
 2. **Systems Needing a Reboot with No Further Updates**: A host that installed a kernel patch during an automated cycle may have zero outstanding updates but still needs a clean reboot.
 3. **Collision Safety**: Keeping update scanning independent from reboot execution ensures maintenance windows are reserved strictly for safe reboot orchestration.
+
+---
+
+## 3-Topic Fleet Architecture & Watchdog Routing
+
+To avoid alert fatigue and enable tailored sound, vibration, and priority policies across mobile and desktop devices, the pipeline routes notifications through three distinct functional channels:
+
+```mermaid
+graph TD
+    subgraph Alerts_Channel ["1. NTFY_ALERTS_TOPIC (Urgent / Alarm)"]
+        A1[systemd-failure-notify.sh] --> A[Critical Alert Stream]
+        A2[Script Crashes / failure_handler] --> A
+        A3[Failed Package Installations] --> A
+        A4["Healthchecks.io Watchdog (Down Event)"] -.-> A
+    end
+
+    subgraph Reboot_Channel ["2. NTFY_REBOOT_TOPIC (High Priority Chime)"]
+        R1[conditional-reboot.sh: Scheduled in 5m] --> R[Reboot Lifecycle Stream]
+        R2[conditional-reboot.sh: Deferred] --> R
+        R3[post-boot-notify.sh: Boot Successful] --> R
+    end
+
+    subgraph Control_Channel ["3. NTFY_CONTROL_TOPIC (Action Buttons & Listener)"]
+        C1[check-updates.sh: Updates Available] --> C[Control & Action Stream]
+        C2[Interactive Apply Updates Buttons] --> C
+        C3[remote-update-listener.sh Listener] <--> C
+    end
+```
+
+### Channel Routing & Purpose
+
+| Topic Parameter | Intended Purpose | Urgency Level | Special Integration Notes |
+| :--- | :--- | :--- | :--- |
+| **`NTFY_ALERTS_TOPIC`** | Critical service crashes, update failures, pipeline errors. | **Max / Urgent** | **Designated Target for Healthchecks.io Watchdog**: Configure your Healthchecks.io check integration to forward missing-heartbeat / down notifications directly into this topic. |
+| **`NTFY_REBOOT_TOPIC`** | Scheduled reboots (5m countdown), deferral notices, and post-boot startup confirmations. | **High** | Alerts you when a reboot is pending or confirms when a node has successfully returned online. |
+| **`NTFY_CONTROL_TOPIC`** | Outstanding update digests, interactive `[🚀 Apply Updates]` buttons, and the listener daemon. | **Default** | Houses remote action triggers; secured via HMAC-SHA256 signatures and publisher ACLs. |
+
+### Fleet Multi-Host Differentiation
+On shared topics spanning multiple machines:
+- **Title Prefixing**: All telemetry messages automatically prepend `[<hostname>]` (e.g. `[pond] 🔄 Reboot Scheduled`).
+- **Targeted Action Payloads**: Remote action buttons embed target host IDs (`apply_updates:<hostname>:...`) so other nodes sharing the topic ignore non-targeted commands.
 
 ---
 

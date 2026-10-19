@@ -21,7 +21,7 @@ trap 'touch /run/package-update.failed; failure_handler ${LINENO}' ERR
 PACKAGES_TO_UPGRADE=$(get_pending_updates)
 
 logger -t apply-updates "Initiating full package upgrade on ${HOSTNAME}. Target packages: ${PACKAGES_TO_UPGRADE:-None detected}"
-send_ntfy "⏳ Updates In Progress" "Starting full package upgrade on ${HOSTNAME}...\n\nTarget packages: ${PACKAGES_TO_UPGRADE:-All available}" "default"
+send_ntfy "control" "⏳ Updates In Progress" "Starting full package upgrade on ${HOSTNAME}...\n\nTarget packages: ${PACKAGES_TO_UPGRADE:-All available}" "default"
 
 LOG_FILE="/var/log/package-upgrades.log"
 mkdir -p "$(dirname "${LOG_FILE}")"
@@ -99,14 +99,14 @@ if [[ "${UPGRADE_SUCCESS}" == "true" ]]; then
         PKG_DETAILS_MSG="📦 Upgraded packages: ${PACKAGES_TO_UPGRADE}"$'\n\n'
     fi
 
-    send_ntfy "✅ Updates Completed" "Full package upgrade on ${HOSTNAME} finished successfully.\n\n${PKG_DETAILS_MSG}${REBOOT_STATUS}" "high"
+    send_ntfy "control" "✅ Updates Completed" "Full package upgrade on ${HOSTNAME} finished successfully.\n\n${PKG_DETAILS_MSG}${REBOOT_STATUS}" "high"
     ping_hc ""
     exit 0
 else
     touch /run/package-update.failed
     LAST_LOGS=$(tail -n 15 "${LOG_FILE}" 2>/dev/null | tr '\n' ' ')
     logger -t apply-updates "Package upgrade failed on ${HOSTNAME}: ${LAST_LOGS}"
-    send_ntfy "❌ Updates Failed" "Package upgrade failed on ${HOSTNAME}!\n\nRecent error log: ${LAST_LOGS}\n\nFull log: ${LOG_FILE}" "urgent"
+    send_ntfy "alerts" "❌ Updates Failed" "Package upgrade failed on ${HOSTNAME}!\n\nRecent error log: ${LAST_LOGS}\n\nFull log: ${LOG_FILE}" "urgent"
     ping_hc "fail"
     exit 1
 fi

@@ -1,0 +1,12 @@
+[Unit]
+Description=Dispatch Post-Boot Success Telemetry Notification
+After=network-online.target
+Wants=network-online.target
+OnFailure=failure-notification@%n.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/post-boot-notify.sh
+
+[Install]
+WantedBy=multi-user.target

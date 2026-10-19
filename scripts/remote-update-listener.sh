@@ -15,7 +15,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/common-telemetry.sh"
 
 MY_HOSTNAME="$(hostname -s 2>/dev/null || echo "${HOSTNAME}")"
-CMD_TOPIC="${NTFY_CMD_TOPIC:-${NTFY_TOPIC:+${NTFY_TOPIC}-cmd}}"
+CMD_TOPIC="${NTFY_CONTROL_TOPIC:-${NTFY_CMD_TOPIC:-${NTFY_TOPIC:+${NTFY_TOPIC}-cmd}}}"
 
 if [[ -z "${CMD_TOPIC}" ]]; then
     logger -t remote-listener "NTFY command topic is not configured. Exiting."

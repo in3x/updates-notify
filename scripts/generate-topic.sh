@@ -166,9 +166,11 @@ SYSTEM_GROUP="$1"
 NTFY_USER="${2:-your-ntfy-username}"
 OUTPUT_FILE="${3:-${REPO_DIR}/site-conf/${SYSTEM_GROUP}/99-local.conf}"
 
-# 1. Generate unique, high-entropy 16-hex suffix for NTFY topic
+# 1. Generate unique, high-entropy 16-hex suffix for NTFY topics
 HEX_SUFFIX="$(openssl rand -hex 8 2>/dev/null || od -vN 8 -An -tx1 /dev/urandom | tr -d ' \n')"
-TOPIC="pw-${SYSTEM_GROUP}-updates-${HEX_SUFFIX}"
+ALERTS_TOPIC="${SYSTEM_GROUP}-alerts-${HEX_SUFFIX}"
+REBOOT_TOPIC="${SYSTEM_GROUP}-reboot-${HEX_SUFFIX}"
+CONTROL_TOPIC="${SYSTEM_GROUP}-control-${HEX_SUFFIX}"
 
 # 2. Generate 32-byte (256-bit) FLEET_SECRET and creation date
 FLEET_SECRET="$(openssl rand -hex 32 2>/dev/null || od -vN 32 -An -tx1 /dev/urandom | tr -d ' \n')"
@@ -182,12 +184,24 @@ cat <<EOF > "${OUTPUT_FILE}"
 # Host Telemetry & Notification Overrides
 # Deploy to /etc/conditional-reboot.conf.d/99-local.conf (chmod 600, root:root)
 
-NTFY_TOPIC="${TOPIC}"
+# NTFY Fleet Topics (3-Channel Architecture)
+# NTFY_ALERTS_TOPIC:  Urgent failures (systemd crashes, update failures). ALSO target for Healthchecks.io watchdog!
+# NTFY_REBOOT_TOPIC:  Reboot notifications (scheduled, deferred, and boot success confirmation)
+# NTFY_CONTROL_TOPIC: Outstanding updates, remote action buttons, and command listener
+NTFY_ALERTS_TOPIC="${ALERTS_TOPIC}"
+NTFY_REBOOT_TOPIC="${REBOOT_TOPIC}"
+NTFY_CONTROL_TOPIC="${CONTROL_TOPIC}"
+
+# Legacy fallback (used only if 3-topic channels above are unset)
+# NTFY_TOPIC="${CONTROL_TOPIC}"
+
 NTFY_TOKEN="your-token-here"
+
+# Healthchecks.io Ping URL (Note: In Healthchecks.io dashboard, configure NTFY integration pointing to NTFY_ALERTS_TOPIC)
 HC_PING_URL="https://hc-ping.com/your-uuid-here"
 
-# Optional: Dedicated NTFY command topic for remote action button triggers (defaults to <NTFY_TOPIC>-cmd)
-# NTFY_CMD_TOPIC="${TOPIC}-cmd"
+# Optional: Dedicated NTFY command topic for remote action button triggers (defaults to NTFY_CONTROL_TOPIC)
+# NTFY_CMD_TOPIC="${CONTROL_TOPIC}"
 
 # Optional: Restrict remote action triggers to a verified publisher username (NTFY JSON stream ACL)
 NTFY_VALID_USER="${NTFY_USER}"
@@ -207,13 +221,15 @@ EOF
 chmod 0600 "${OUTPUT_FILE}"
 
 echo "==> Site configuration generated successfully!"
-echo "    File:         ${OUTPUT_FILE}"
-echo "    System Group: ${SYSTEM_GROUP}"
-echo "    NTFY Topic:   ${TOPIC} (public delivery endpoint)"
-echo "    Fleet Secret: ${FLEET_SECRET:0:16}... (private 256-bit key, completely independent from topic)"
-echo "    Created:      ${CREATED_TS}"
-echo "    NTFY User:    ${NTFY_USER}"
+echo "    File:             ${OUTPUT_FILE}"
+echo "    System Group:     ${SYSTEM_GROUP}"
+echo "    Alerts Topic:     ${ALERTS_TOPIC} (urgent errors; target for Healthchecks watchdog)"
+echo "    Reboot Topic:     ${REBOOT_TOPIC} (scheduled reboots, deferrals, boot success)"
+echo "    Control Topic:    ${CONTROL_TOPIC} (updates, action buttons, command listener)"
+echo "    Fleet Secret:     ${FLEET_SECRET:0:16}... (private 256-bit key, completely independent from topics)"
+echo "    Created:          ${CREATED_TS}"
+echo "    NTFY User:        ${NTFY_USER}"
 echo ""
-echo "Note: The NTFY topic and Fleet Secret are two independent items."
-echo "      The topic appears in URLs; the secret remains strictly confidential on disk."
+echo "Note: The NTFY topics and Fleet Secret are separate, independent items."
+echo "      Topics appear in URLs; the secret remains strictly confidential on disk."
 echo "Next step: Open ${OUTPUT_FILE} and fill in your NTFY_TOKEN and HC_PING_URL."

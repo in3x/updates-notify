@@ -1,8 +1,20 @@
 # Host Telemetry & Notification Overrides
 # Deploy to /etc/conditional-reboot.conf.d/99-local.conf (chmod 600, root:root)
 
-NTFY_TOPIC="your-topic-here"
+# NTFY Fleet Topics (3-Channel Architecture)
+# NTFY_ALERTS_TOPIC:  Urgent failures (systemd crashes, update failures). ALSO target for Healthchecks.io watchdog!
+# NTFY_REBOOT_TOPIC:  Reboot notifications (scheduled, deferred, and boot success confirmation)
+# NTFY_CONTROL_TOPIC: Outstanding updates, remote action buttons, and command listener
+NTFY_ALERTS_TOPIC="your-alerts-topic"
+NTFY_REBOOT_TOPIC="your-reboot-topic"
+NTFY_CONTROL_TOPIC="your-control-topic"
+
+# Legacy Single-Topic Fallback (used only if 3-topic channels above are unset)
+# NTFY_TOPIC="your-topic-here"
+
 NTFY_TOKEN="your-token-here"
+
+# Healthchecks.io Ping URL (Note: In Healthchecks.io dashboard, configure NTFY integration pointing to NTFY_ALERTS_TOPIC)
 HC_PING_URL="https://hc-ping.com/your-uuid-here"
 
 # Optional: Dedicated NTFY command topic for remote action button triggers (defaults to <NTFY_TOPIC>-cmd)
