@@ -24,6 +24,13 @@ In an automated maintenance pipeline with remote update capabilities, the primar
 
 When using public NTFY servers or shared topics without paid server-side write restrictions, the pipeline provides end-to-end cryptographic payload authentication via `FLEET_SECRET`.
 
+### Complete Separation of Public Topics and Private Secrets
+The public NTFY topic name and the `FLEET_SECRET` are generated as **two completely independent random values**:
+- **`NTFY_TOPIC`** (`pw-<group>-updates-<16-hex>`): A public, high-entropy routing endpoint visible in URLs.
+- **`FLEET_SECRET`** (256-bit hex): A confidential, host-isolated signing key locked down (`0600 root:root`) in `/etc/conditional-reboot.conf.d/99-local.conf`.
+
+The topic name is **never derived from, combined with, or related to** the secret. Even if an attacker monitors or intercepts the topic URL, zero knowledge of the signing key is leaked.
+
 To prevent attacks relying on predictable timestamps, each action button generates a **cryptographically random seed (nonce)** and runs the signature through **sequential HMAC-SHA256 stretching rounds** (similar to the Key Derivation Function (KDF) rounds used in `ssh-keygen -a`).
 
 ### Payload Format
@@ -152,18 +159,41 @@ Non-root local users and unprivileged service accounts cannot read or traverse t
 
 To enable HMAC-SHA256 signature verification on your fleet:
 
-1. **Generate a 256-bit random secret**:
+1. **Generate a site configuration with a unique secret**:
    ```bash
-   openssl rand -hex 32
+   ./scripts/generate-topic.sh homelab eric
+   ```
+   This generates `site-conf/homelab/99-local.conf` with a cryptographically random 256-bit `FLEET_SECRET` and timestamp `FLEET_SECRET_CREATED_DATE`.
+
+2. **Deploy to target hosts**:
+   ```bash
+   sudo ./deploy.sh homelab
    ```
 
-2. **Add to `/etc/conditional-reboot.conf.d/99-local.conf`**:
-   ```bash
-   # Shared secret for HMAC-SHA256 signing of remote action buttons
-   FLEET_SECRET="d8e52a9f4c3b018e6d2a7f5c9e1b4a8d3f6c2e0a1b5c9d4e8f2a7b3c1d5e9f0a"
-   ```
+---
 
-3. **Verify restrictive permissions**:
-   ```bash
-   sudo chmod 0600 /etc/conditional-reboot.conf.d/99-local.conf
-   ```
+## 9. Secret Rotation Lifecycle (Routine vs. Emergency)
+
+Secrets should be rotated periodically (e.g., every 6–12 months) or immediately upon suspicion of a leak. `generate-topic.sh` provides built-in automation for both scenarios:
+
+### A. Routine Rotation (`--rotate-secret`)
+For scheduled rotations without disrupting active mobile notifications:
+```bash
+./scripts/generate-topic.sh --rotate-secret homelab
+```
+
+- **Dual-Key Staging**: Shifts the current key to `FLEET_SECRET_PREVIOUS` and sets a new `FLEET_SECRET`.
+- **Self-Revoking Grace Window**: The listener accepts buttons signed by `FLEET_SECRET_PREVIOUS` only while:
+  $$\text{Current Time} < \text{FLEET\_SECRET\_CREATED\_DATE} + 24\text{ hours}$$
+  After 24 hours, the previous secret automatically expires in code—no secondary cleanup required.
+- **Service Restart**: The tool prompts to restart `remote-update-listener.service`.
+
+### B. Emergency Rotation (`--rotate-emergency`)
+For immediate containment of a compromised credential or token:
+```bash
+./scripts/generate-topic.sh --rotate-emergency homelab
+```
+
+- **Zero Grace Window**: Immediately clears `FLEET_SECRET_PREVIOUS` and generates a fresh `FLEET_SECRET`.
+- **Replay Cache Flush**: Clears `/run/updates-notify/consumed_nonces`.
+- **Immediate Lockout**: Prompts to immediately restart `remote-update-listener.service`. Any subsequent attempt to trigger an update using the old secret fails instantly with a `SECURITY ALERT`.

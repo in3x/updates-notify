@@ -14,6 +14,8 @@ HC_PING_URL="https://hc-ping.com/your-uuid-here"
 # Optional: Shared cryptographic secret for HMAC-SHA256 signing of remote action buttons
 # Generate with: openssl rand -hex 32
 # FLEET_SECRET="your-32-byte-hex-secret-here"
+# FLEET_SECRET_CREATED_DATE="1729350000"
+# FLEET_SECRET_PREVIOUS=""
 
 # Maintenance Constraints & Safety Locks
 MAINTENANCE_WINDOW_START="02:00"

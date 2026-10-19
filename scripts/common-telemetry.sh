@@ -13,6 +13,11 @@ elif [[ $EUID -ne 0 ]]; then
     echo "Warning: Running as non-root. Cannot access ${CONF_FILE}; please run with 'sudo'." >&2
 fi
 
+# Ensure optional secret parameters have safe defaults for set -u
+FLEET_SECRET="${FLEET_SECRET:-}"
+FLEET_SECRET_PREVIOUS="${FLEET_SECRET_PREVIOUS:-}"
+FLEET_SECRET_CREATED_DATE="${FLEET_SECRET_CREATED_DATE:-0}"
+
 ping_hc() {
     local status="${1:-}"
     local caller_file="${BASH_SOURCE[1]:-$0}"

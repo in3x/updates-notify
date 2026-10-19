@@ -81,10 +81,27 @@ while true; do
                 continue
             fi
 
-            # 2. Cryptographic Multi-Round HMAC Verification (ssh-keygen style round stretching)
+            # 2. Cryptographic Multi-Round HMAC Verification (with 24h grace window for rotated secrets)
+            sig_valid=0
             if [[ -n "${FLEET_SECRET:-}" ]]; then
                 expected_sig="$(compute_payload_hmac "${FLEET_SECRET}" "${target_host}" "${cmd_ts}" "${cmd_seed}" 16)"
-                if [[ "${cmd_sig}" != "${expected_sig}" ]]; then
+                if [[ "${cmd_sig}" == "${expected_sig}" ]]; then
+                    sig_valid=1
+                elif [[ -n "${FLEET_SECRET_PREVIOUS:-}" ]]; then
+                    now_sec="$(date +%s)"
+                    grace_cutoff=$(( ${FLEET_SECRET_CREATED_DATE:-0} + 86400 ))
+                    if (( now_sec < grace_cutoff )); then
+                        expected_prev_sig="$(compute_payload_hmac "${FLEET_SECRET_PREVIOUS}" "${target_host}" "${cmd_ts}" "${cmd_seed}" 16)"
+                        if [[ "${cmd_sig}" == "${expected_prev_sig}" ]]; then
+                            sig_valid=1
+                            logger -t remote-listener "Accepted payload using previous fleet secret (within 24h rotation grace window)."
+                        fi
+                    else
+                        logger -t remote-listener "Ignored previous fleet secret: 24h rotation grace window expired."
+                    fi
+                fi
+
+                if (( sig_valid == 0 )); then
                     logger -t remote-listener "SECURITY ALERT: Invalid HMAC signature on command payload for ${MY_HOSTNAME}. Dropped."
                     continue
                 fi
@@ -124,9 +141,24 @@ while true; do
                 continue
             fi
 
+            sig_valid=0
             if [[ -n "${FLEET_SECRET:-}" ]]; then
                 expected_sig="$(echo -n "${target_host}:${cmd_ts}" | openssl dgst -sha256 -hmac "${FLEET_SECRET}" 2>/dev/null | awk '{print $2}')"
-                if [[ "${cmd_sig}" != "${expected_sig}" ]]; then
+                if [[ "${cmd_sig}" == "${expected_sig}" ]]; then
+                    sig_valid=1
+                elif [[ -n "${FLEET_SECRET_PREVIOUS:-}" ]]; then
+                    now_sec="$(date +%s)"
+                    grace_cutoff=$(( ${FLEET_SECRET_CREATED_DATE:-0} + 86400 ))
+                    if (( now_sec < grace_cutoff )); then
+                        expected_prev_sig="$(echo -n "${target_host}:${cmd_ts}" | openssl dgst -sha256 -hmac "${FLEET_SECRET_PREVIOUS}" 2>/dev/null | awk '{print $2}')"
+                        if [[ "${cmd_sig}" == "${expected_prev_sig}" ]]; then
+                            sig_valid=1
+                            logger -t remote-listener "Accepted payload using previous fleet secret (within 24h rotation grace window)."
+                        fi
+                    fi
+                fi
+
+                if (( sig_valid == 0 )); then
                     logger -t remote-listener "SECURITY ALERT: Invalid HMAC signature on command payload for ${MY_HOSTNAME}. Dropped."
                     continue
                 fi
