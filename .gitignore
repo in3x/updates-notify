@@ -1,0 +1,7 @@
+# Exclude site-specific configuration data and secrets
+site-conf/*
+!site-conf/.gitkeep
+
+# Exclude local editor and backup files
+*.bak
+*~
