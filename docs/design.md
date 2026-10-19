@@ -140,7 +140,10 @@ graph TD
 ### 3. Idempotent Configuration Merging & Default Reference Annotations
 
 To keep production nodes synchronized with upstream configuration template improvements without clobbering host-specific values:
-- **Reference Default Commenting**: When a setting exists in the template (`99-local.conf.example`), `deploy.sh` ensures that exactly one `# Default: <template_setting>` line is placed directly above the node's local active assignment.
+- **Site-Specific Group Staging (`site-conf/<system-group-name>/`)**: Host and group configurations are staged locally in `site-conf/<group>/99-local.conf` and excluded from version control via `.gitignore`.
+- **Automated Configuration Generator (`generate-topic.sh`)**: Generates pre-populated site configurations containing a unique NTFY topic, a 256-bit `FLEET_SECRET`, and publisher ACL user.
+- **Group-Targeted Deployments (`deploy.sh <system-group-name>`)**: Extracts site configuration from `site-conf/<group>/` and merges it into the operational `/etc/conditional-reboot.conf.d/99-local.conf`.
+- **Reference Default Commenting**: When a setting exists in the template (`99-local.conf.example`), `deploy.sh` ensures that exactly one `# Default: <template_setting>` line is placed directly above the node's local active assignment, separated by clean blank-line spacing.
 - **Upstream Default Sync**: If an upstream default changes in a future release, subsequent deployments update the `# Default:` comment to reflect the new reference value while strictly leaving the host's custom setting below it untouched.
 - **New & Optional Settings**: Any newly introduced parameters (including commented optional parameters like `NTFY_CMD_TOPIC` or `NTFY_VALID_USER`) are automatically appended with their accompanying documentation blocks.
 - **Pre-Modification Backups**: Creates timestamped backups (`.YYYYMMDD-HHMMSS.bak`, retaining up to 3) before making any modifications.

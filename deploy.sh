@@ -6,6 +6,11 @@ trap 'echo "Fatal: Deploy script failed on line $LINENO" >&2; exit 1' ERR
 
 echo "==> Deploying updates-notify pipeline to system..."
 
+SYSTEM_GROUP="${1:-}"
+if [[ -n "${SYSTEM_GROUP}" ]]; then
+    echo "    System Group: ${SYSTEM_GROUP}"
+fi
+
 # Ensure root privileges
 if [[ $EUID -ne 0 ]]; then
    echo "Error: This deployment script must be run as root." >&2
@@ -361,20 +366,53 @@ install_file_safely "${REPO_DIR}/scripts/pending-updates-digest.sh" "/usr/local/
 install_file_safely "${REPO_DIR}/scripts/apply-all-updates.sh" "/usr/local/bin/apply-all-updates.sh" 0755
 install_file_safely "${REPO_DIR}/scripts/remote-update-listener.sh" "/usr/local/bin/remote-update-listener.sh" 0755
 
-# 5. Create Configuration Directory & Template
+# 5. Create Configuration Directory & Merge Configuration
 echo "-> Checking configuration in /etc/conditional-reboot.conf.d/"
 install -d -m 0700 -o root -g root /etc/conditional-reboot.conf.d
 
 CONF_FILE="/etc/conditional-reboot.conf.d/99-local.conf"
 EXAMPLE_FILE="${REPO_DIR}/conf/99-local.conf.example"
 
+SOURCE_CONF=""
+if [[ -n "${SYSTEM_GROUP}" ]]; then
+    SITE_CONF_DIR="${REPO_DIR}/site-conf/${SYSTEM_GROUP}"
+    if [[ ! -d "${SITE_CONF_DIR}" ]]; then
+        echo "Error: Site configuration directory not found: ${SITE_CONF_DIR}" >&2
+        echo "Generate it first using: ./scripts/generate-topic.sh ${SYSTEM_GROUP}" >&2
+        exit 1
+    fi
+
+    if [[ -f "${SITE_CONF_DIR}/99-local.conf" ]]; then
+        SOURCE_CONF="${SITE_CONF_DIR}/99-local.conf"
+    else
+        shopt -s nullglob
+        conf_matches=("${SITE_CONF_DIR}"/*.conf)
+        shopt -u nullglob
+        if (( ${#conf_matches[@]} > 0 )); then
+            SOURCE_CONF="${conf_matches[0]}"
+        else
+            echo "Error: No .conf file found in ${SITE_CONF_DIR}." >&2
+            exit 1
+        fi
+    fi
+    echo "-> Using site configuration for group '${SYSTEM_GROUP}': ${SOURCE_CONF}"
+else
+    echo "-> No system group specified. Using default template: ${EXAMPLE_FILE}"
+    SOURCE_CONF="${EXAMPLE_FILE}"
+fi
+
 if [[ ! -f "${CONF_FILE}" ]]; then
-    if [[ -f "${EXAMPLE_FILE}" ]]; then
-        install_file_safely "${EXAMPLE_FILE}" "${CONF_FILE}" 0600 root root
+    echo "   [NEW FILE] Installing ${SOURCE_CONF} as ${CONF_FILE}..."
+    install -m 0600 -o root -g root "${SOURCE_CONF}" "${CONF_FILE}"
+    if [[ "${SOURCE_CONF}" != "${EXAMPLE_FILE}" && -f "${EXAMPLE_FILE}" ]]; then
+        merge_config_settings "${EXAMPLE_FILE}" "${CONF_FILE}"
     fi
 else
-    echo "   [EXISTS] Checking for new template settings in ${CONF_FILE}..."
-    if [[ -f "${EXAMPLE_FILE}" ]]; then
+    echo "   [EXISTS] Merging configuration into operational ${CONF_FILE}..."
+    if [[ -f "${SOURCE_CONF}" ]]; then
+        merge_config_settings "${SOURCE_CONF}" "${CONF_FILE}"
+    fi
+    if [[ "${SOURCE_CONF}" != "${EXAMPLE_FILE}" && -f "${EXAMPLE_FILE}" ]]; then
         merge_config_settings "${EXAMPLE_FILE}" "${CONF_FILE}"
     fi
     chmod 0600 "${CONF_FILE}"

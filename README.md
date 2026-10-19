@@ -54,63 +54,37 @@ If you prefer to pre-install dependencies manually before deploying:
 
 ---
 
-### 1. Execute Deployment Script
-
-Run `deploy.sh` as `root` to install scripts, systemd units, and package manager configuration drop-ins with strict permissions (`root:root`, `0755`/`0644`/`0600`):
+### 1. Generate Site Configuration
+Use `generate-topic.sh` to generate a site-specific configuration file with a unique topic, a 256-bit `FLEET_SECRET`, and your NTFY username:
 
 ```bash
-sudo ./deploy.sh
+# Syntax: ./scripts/generate-topic.sh <system-group-name> [ntfy-valid-user] [output-file]
+
+./scripts/generate-topic.sh homelab eric
+# Output: Writes to site-conf/homelab/99-local.conf (chmod 0600)
 ```
 
-*If `etckeeper` is installed, the script automatically stages `/etc` prior to deployment and commits all changes upon completion.*
+Edit `site-conf/homelab/99-local.conf` to add your `NTFY_TOKEN` and `HC_PING_URL`:
+
+```bash
+nano site-conf/homelab/99-local.conf
+```
+
+*(Note: `site-conf/*` is excluded via `.gitignore` so your secrets and tokens are never checked into version control.)*
 
 ---
 
-### 2. Configure Local Overrides (`99-local.conf`)
+### 2. Execute Deployment Script
 
-#### Generate a Unique NTFY Topic Name
-Use `generate-topic.sh` to generate a unique topic identifier consisting of a local usable name and a random 16-character alphanumeric suffix:
-
-```bash
-# Syntax: ./scripts/generate-topic.sh <local-usable-name> [suffix-length]
-
-./scripts/generate-topic.sh pw-lake-updates
-# Output: pw-lake-updates-8861344083d8c97d
-
-# Or with custom suffix length:
-./scripts/generate-topic.sh my-server-updates 16
-# Output: my-server-updates-a4f91b80c3e7215d
-```
-
-#### Edit Configuration
-Configure host-specific telemetry, NTFY authentication credentials, and reboot maintenance windows:
+Run `deploy.sh` as `root` passing your system group name. The script installs scripts, systemd units, package manager drop-ins, and merges your site configuration into `/etc/conditional-reboot.conf.d/99-local.conf`:
 
 ```bash
-sudo nano /etc/conditional-reboot.conf.d/99-local.conf
+# Syntax: sudo ./deploy.sh [system-group-name]
+
+sudo ./deploy.sh homelab
 ```
 
-Set your node parameters:
-
-```bash
-# Host identification & NTFY notification endpoints
-NTFY_URL="[https://ntfy.sh](https://ntfy.sh)"
-NTFY_TOPIC="your_private_topic"
-NTFY_TOKEN="tk_xxxxxxxxxxxxxxxxx"
-HC_PING_URL="[https://hc-ping.com/your-uuid-here](https://hc-ping.com/your-uuid-here)"
-
-# Maintenance window constraints (24-hour format)
-MAINTENANCE_WINDOW_START="03:00"
-MAINTENANCE_WINDOW_END="05:00"
-
-# Optional: Override process blocks (space-separated array)
-BLOCKED_PROCESSES=("backup_job" "db_migration" "rsync" "tmux")
-```
-
-Ensure the configuration file retains restricted permissions:
-
-```bash
-sudo chmod 0600 /etc/conditional-reboot.conf.d/99-local.conf
-```
+*If `etckeeper` is installed, the script automatically stages `/etc` prior to deployment and commits all changes upon completion.*
 
 ---
 
