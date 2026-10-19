@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 # Common Telemetry & Notification Functions
 
+NTFY_ALERTS_TOPIC=""
+NTFY_REBOOT_TOPIC=""
+NTFY_CONTROL_TOPIC=""
 NTFY_TOPIC=""
 HC_PING_URL=""
 
@@ -17,6 +20,10 @@ fi
 FLEET_SECRET="${FLEET_SECRET:-}"
 FLEET_SECRET_PREVIOUS="${FLEET_SECRET_PREVIOUS:-}"
 FLEET_SECRET_CREATED_DATE="${FLEET_SECRET_CREATED_DATE:-0}"
+NTFY_ALERTS_TOPIC="${NTFY_ALERTS_TOPIC:-}"
+NTFY_REBOOT_TOPIC="${NTFY_REBOOT_TOPIC:-}"
+NTFY_CONTROL_TOPIC="${NTFY_CONTROL_TOPIC:-}"
+NTFY_TOPIC="${NTFY_TOPIC:-}"
 
 ping_hc() {
     local status="${1:-}"
@@ -35,10 +42,54 @@ ping_hc() {
 }
 
 send_ntfy() {
-    local title="${1:-System Alert}"
-    local message="${2:-No message body provided.}"
-    local priority="${3:-default}"
-    local actions="${4:-}"
+    local channel="alerts"
+    local title=""
+    local message=""
+    local priority="default"
+    local actions=""
+
+    # Support 3-channel routing: send_ntfy <channel> <title> <message> [priority] [actions]
+    # Fallback for legacy calls: send_ntfy <title> <message> [priority] [actions]
+    case "${1:-}" in
+        alerts|reboot|control)
+            channel="$1"
+            title="${2:-System Alert}"
+            message="${3:-No message body provided.}"
+            priority="${4:-default}"
+            actions="${5:-}"
+            ;;
+        *)
+            channel="alerts"
+            title="${1:-System Alert}"
+            message="${2:-No message body provided.}"
+            priority="${3:-default}"
+            actions="${4:-}"
+            ;;
+    esac
+
+    # Resolve destination topic based on channel
+    local target_topic=""
+    case "${channel}" in
+        alerts)
+            target_topic="${NTFY_ALERTS_TOPIC:-${NTFY_TOPIC:-}}"
+            ;;
+        reboot)
+            target_topic="${NTFY_REBOOT_TOPIC:-${NTFY_TOPIC:-}}"
+            ;;
+        control)
+            target_topic="${NTFY_CONTROL_TOPIC:-${NTFY_TOPIC:-}}"
+            ;;
+    esac
+
+    if [[ -z "${target_topic}" ]]; then
+        return 0
+    fi
+
+    # Automatically prepend host tag for clear multi-machine visibility on shared topics
+    local host_tag="[$(hostname -s 2>/dev/null || echo "${HOSTNAME}")]"
+    if [[ "${title}" != *"${host_tag}"* && "${title}" != *"["*"${HOSTNAME}"*"]"* ]]; then
+        title="${host_tag} ${title}"
+    fi
 
     local caller_file="${BASH_SOURCE[1]:-$0}"
     local caller_line="${BASH_LINENO[0]:-unknown}"
@@ -48,19 +99,17 @@ send_ntfy() {
     local first_lines
     first_lines=$(echo "${message}" | head -n 2 | tr '\n' ' ')
 
-    logger -t "ntfy-dispatch" "[${caller_name}:${caller_line}] Priority='${priority}' Title='${title}' Body='${first_lines}'"
+    logger -t "ntfy-dispatch" "[${caller_name}:${caller_line}] [${channel}->${target_topic}] Priority='${priority}' Title='${title}' Body='${first_lines}'"
 
-    if [[ -n "${NTFY_TOPIC:-}" ]]; then
-        local -a headers=()
-        [[ -n "${NTFY_TOKEN:-}" ]] && headers+=(-H "Authorization: Bearer ${NTFY_TOKEN}")
-        headers+=(-H "Title: ${title}")
-        headers+=(-H "Priority: ${priority}")
-        [[ -n "${actions}" ]] && headers+=(-H "Actions: ${actions}")
+    local -a headers=()
+    [[ -n "${NTFY_TOKEN:-}" ]] && headers+=(-H "Authorization: Bearer ${NTFY_TOKEN}")
+    headers+=(-H "Title: ${title}")
+    headers+=(-H "Priority: ${priority}")
+    [[ -n "${actions}" ]] && headers+=(-H "Actions: ${actions}")
 
-        curl -s "${headers[@]}" \
-             -d "${message}" \
-             "${NTFY_URL:-https://ntfy.sh}/${NTFY_TOPIC}" >/dev/null 2>&1 || true
-    fi
+    curl -s "${headers[@]}" \
+         -d "${message}" \
+         "${NTFY_URL:-https://ntfy.sh}/${target_topic}" >/dev/null 2>&1 || true
 }
 
 compute_payload_hmac() {
@@ -84,7 +133,7 @@ compute_payload_hmac() {
 }
 
 get_apply_updates_action() {
-    local cmd_topic="${NTFY_CMD_TOPIC:-${NTFY_TOPIC:+${NTFY_TOPIC}-cmd}}"
+    local cmd_topic="${NTFY_CONTROL_TOPIC:-${NTFY_CMD_TOPIC:-${NTFY_TOPIC:+${NTFY_TOPIC}-cmd}}}"
     if [[ -z "${cmd_topic}" ]]; then
         echo ""
         return 0
@@ -120,7 +169,7 @@ failure_handler() {
 
     touch /run/package-update.failed 2>/dev/null || true
     logger -t "${script_name}" "Script error occurred on line ${line_no}."
-    send_ntfy "🚨 Pipeline Failure: ${script_name}" "${script_name} crashed on ${HOSTNAME} at line ${line_no}." "urgent"
+    send_ntfy "alerts" "🚨 Pipeline Failure: ${script_name}" "${script_name} crashed on ${HOSTNAME} at line ${line_no}." "urgent"
     ping_hc "fail"
     exit 1
 }

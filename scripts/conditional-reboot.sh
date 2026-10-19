@@ -41,7 +41,7 @@ FAIL_FLAG_FILE="/run/package-update.failed"
 # 4. Inspect Prior Pipeline Failures
 if [[ -f "${FAIL_FLAG_FILE}" ]]; then
     logger -t conditional-reboot "Aborting: Prior package update failure flag (${FAIL_FLAG_FILE}) detected."
-    send_ntfy "⚠️ Reboot Aborted" "Reboot skipped on ${HOSTNAME}: Package installation reported failures." "high"
+    send_ntfy "alerts" "⚠️ Reboot Aborted" "Reboot skipped on ${HOSTNAME}: Package installation reported failures." "high"
     ping_hc "fail"
     exit 1
 fi
@@ -101,7 +101,7 @@ fi
 CURRENT_TIME=$(date +%H:%M)
 if [[ "${CURRENT_TIME}" < "${MAINTENANCE_WINDOW_START}" || "${CURRENT_TIME}" > "${MAINTENANCE_WINDOW_END}" ]]; then
     logger -t conditional-reboot "Reboot required${PKG_INFO} but outside maintenance window (${CURRENT_TIME}). Deferring."
-    send_ntfy "ℹ️ Reboot Deferred" "Reboot deferred on ${HOSTNAME}: Outside maintenance window (${CURRENT_TIME}).${PKG_INFO}" "high"
+    send_ntfy "reboot" "ℹ️ Reboot Deferred" "Reboot deferred on ${HOSTNAME}: Outside maintenance window (${CURRENT_TIME}).${PKG_INFO}" "high"
     ping_hc ""
     exit 0
 fi
@@ -109,7 +109,7 @@ fi
 # 7. Active SSH User Check
 if who | grep -q -v -w 'root'; then
     logger -t conditional-reboot "Active user sessions detected. Deferring reboot.${PKG_INFO}"
-    send_ntfy "ℹ️ Reboot Deferred" "Reboot deferred on ${HOSTNAME}: Active logged-in user sessions.${PKG_INFO}" "high"
+    send_ntfy "reboot" "ℹ️ Reboot Deferred" "Reboot deferred on ${HOSTNAME}: Active logged-in user sessions.${PKG_INFO}" "high"
     ping_hc ""
     exit 0
 fi
@@ -141,7 +141,7 @@ esac
 for lock_file in "${PKG_LOCK_FILES[@]}"; do
     if [[ -f "${lock_file}" ]] && command -v fuser >/dev/null 2>&1 && fuser "${lock_file}" >/dev/null 2>&1; then
         logger -t conditional-reboot "Package manager lock '${lock_file}' is held. Deferring reboot.${PKG_INFO}"
-        send_ntfy "ℹ️ Reboot Deferred" "Reboot deferred on ${HOSTNAME}: Package manager is currently installing updates.${PKG_INFO}" "high"
+        send_ntfy "reboot" "ℹ️ Reboot Deferred" "Reboot deferred on ${HOSTNAME}: Package manager is currently installing updates.${PKG_INFO}" "high"
         ping_hc ""
         exit 0
     fi
@@ -151,7 +151,7 @@ done
 for proc in "${BLOCKED_PROCESSES[@]}"; do
     if pgrep -f "${proc}" >/dev/null 2>&1; then
         logger -t conditional-reboot "Blocked process '${proc}' is active. Deferring reboot.${PKG_INFO}"
-        send_ntfy "ℹ️ Reboot Deferred" "Reboot deferred on ${HOSTNAME}: Process '${proc}' is currently running.${PKG_INFO}" "high"
+        send_ntfy "reboot" "ℹ️ Reboot Deferred" "Reboot deferred on ${HOSTNAME}: Process '${proc}' is currently running.${PKG_INFO}" "high"
         ping_hc ""
         exit 0
     fi
@@ -160,6 +160,6 @@ done
 # 10. Execute System Reboot
 logger -t conditional-reboot "All safety checks passed. Triggering intentional system reboot.${PKG_INFO}"
 
-send_ntfy "🔄 Reboot Scheduled" "Intentional maintenance reboot scheduled on ${HOSTNAME} by conditional-reboot utility. All safety checks passed.${PKG_INFO} System will reboot in ${REBOOT_DELAY_MINUTES} minutes." "high"
+send_ntfy "reboot" "🔄 Reboot Scheduled" "Intentional maintenance reboot scheduled on ${HOSTNAME} by conditional-reboot utility. All safety checks passed.${PKG_INFO} System will reboot in ${REBOOT_DELAY_MINUTES} minutes." "high"
 ping_hc ""
 shutdown -r "+${REBOOT_DELAY_MINUTES}" "Automated maintenance reboot scheduled in ${REBOOT_DELAY_MINUTES} minutes by conditional-reboot utility."

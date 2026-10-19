@@ -197,3 +197,13 @@ For immediate containment of a compromised credential or token:
 - **Zero Grace Window**: Immediately clears `FLEET_SECRET_PREVIOUS` and generates a fresh `FLEET_SECRET`.
 - **Replay Cache Flush**: Clears `/run/updates-notify/consumed_nonces`.
 - **Immediate Lockout**: Prompts to immediately restart `remote-update-listener.service`. Any subsequent attempt to trigger an update using the old secret fails instantly with a `SECURITY ALERT`.
+
+---
+
+## 10. Watchdog Integration (Healthchecks.io)
+
+Each managed node reports periodic heartbeats to its own private Healthchecks.io check URL (`HC_PING_URL`).
+
+- **Alert Routing Target**: In your Healthchecks.io dashboard, configure the NTFY alert integration to target your **`NTFY_ALERTS_TOPIC`** using your Bearer authentication token.
+- **Dead Man's Switch**: If a node experiences a hard crash, power cut, or complete network disconnection, it cannot send an alert itself. Healthchecks detects the missing heartbeat and sends a down event directly to `NTFY_ALERTS_TOPIC`.
+- **Alert Quietness**: Because Healthchecks only alerts on state transitions (`UP` $\rightarrow$ `DOWN` and `DOWN` $\rightarrow$ `UP`), it alerts you immediately during an outage without spamming the alerts channel.

@@ -33,7 +33,7 @@ ACTION_BTN=$(get_apply_updates_action)
 MESSAGE="Available for upgrade on ${HOSTNAME}: ${PENDING_UPDATES}."
 
 logger -t check-updates "Outstanding updates detected: ${PENDING_UPDATES}"
-send_ntfy "📦 Updates Available" "${MESSAGE}" "default" "${ACTION_BTN}"
+send_ntfy "control" "📦 Updates Available" "${MESSAGE}" "default" "${ACTION_BTN}"
 ping_hc ""
 
 exit 0

@@ -33,6 +33,6 @@ fi
 # 5. Dispatch weekly digest notification
 logger -t pending-updates-digest "Pending package updates on ${HOSTNAME}: ${PENDING_UPDATES}"
 ACTION_BTN=$(get_apply_updates_action)
-send_ntfy "📦 Weekly Updates Digest" "Pending package updates on ${HOSTNAME}: ${PENDING_UPDATES}." "default" "${ACTION_BTN}"
+send_ntfy "control" "📦 Weekly Updates Digest" "Pending package updates on ${HOSTNAME}: ${PENDING_UPDATES}." "default" "${ACTION_BTN}"
 
 exit 0
