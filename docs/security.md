@@ -20,7 +20,42 @@ In an automated maintenance pipeline with remote update capabilities, the primar
 
 ---
 
-## 2. Cryptographic HMAC-SHA256 Action Buttons
+## 2. Server-Side ACLs & Two-Tier Defense-in-Depth
+
+Restricting the NTFY control topic on the server side (Read/Write access granted exclusively to your account token, with anonymous access completely denied) elevates the pipeline to an enterprise-grade **dual-tier defense-in-depth architecture**.
+
+```mermaid
+graph TD
+    subgraph Layer1 ["Layer 1: Gateway-Level Lockout (ntfy.sh Server-Side ACLs)"]
+        G1[Anonymous Internet Traffic] -->|Denied: 401/403| G2[Gateway Edge]
+        G3[Authenticated User / Host Token] -->|Authorized| G4[Private Event Stream]
+    end
+
+    subgraph Layer2 ["Layer 2: Host-Side Cryptographic Validation (Local Server)"]
+        G4 --> H1[remote-update-listener.sh]
+        H1 --> H2{Verify 16-Round HMAC with FLEET_SECRET}
+        H2 -->|Failed| H3[Drop: Invalid Signature]
+        H2 -->|Passed| H4{Check 24h TTL & Anti-Replay Nonce}
+        H4 -->|Fresh| H5[Execute /usr/local/bin/apply-all-updates.sh]
+    end
+```
+
+### Why Both Layers Matter (Independent Failure Domains)
+
+Combining server-side ACLs with host-side HMAC signatures creates two completely independent security perimeters:
+
+| Security Dimension | Gateway ACL Only | Host HMAC Only | Combined Defense-in-Depth |
+| :--- | :--- | :--- | :--- |
+| **Stream Eavesdropping** | ✅ Blocked (Gateway rejects unauthenticated readers). | ❌ Visible (Attackers can monitor message timing and hostnames). | ✅ **Completely Blind**: Unauthorized readers receive `403 Forbidden` at the edge. |
+| **Traffic Spam / DoS** | ✅ Blocked (Unauthenticated posts are dropped at the edge). | ❌ Scanner spam reaches server and fills syslog with rejected HMAC warnings. | ✅ **Clean Logs**: Only valid traffic reaches the host listener. |
+| **Credential Breach: Leaked NTFY Token** | ❌ Vulnerable (Attacker has write access). | ✅ Protected (Attacker still lacks `FLEET_SECRET`). | ✅ **Protected**: An attacker with your NTFY token cannot execute updates without the private `FLEET_SECRET`. |
+| **Credential Breach: Leaked `FLEET_SECRET`** | ✅ Protected (Attacker lacks NTFY token). | ❌ Vulnerable (Attacker can sign payloads). | ✅ **Protected**: An attacker with your `FLEET_SECRET` is blocked from publishing at the NTFY gateway. |
+
+To compromise a node, an adversary would have to breach **both** your private NTFY cloud subscription account and the server's local root filesystem (`0600 root:root`) simultaneously.
+
+---
+
+## 3. Cryptographic HMAC-SHA256 Action Buttons
 
 When using public NTFY servers or shared topics without paid server-side write restrictions, the pipeline provides end-to-end cryptographic payload authentication via `FLEET_SECRET`.
 
@@ -90,18 +125,43 @@ graph TD
 
 ---
 
-## 3. Notification Dismissal (`clear=true`)
+## 4. Visibility of Action Payloads on the Control Topic: Why It Is Safe
 
-To prevent accidental double-execution when an operator taps an action button:
-- All interactive HTTP action buttons dispatched by `check-updates.sh` include **`clear=true`**.
-- When tapped on an Android, iOS, or desktop client:
-  1. The client issues the signed HTTP POST to the command topic.
-  2. The notification is immediately dismissed and cleared from the notification center and lock screen.
-  3. The prompt is removed, preventing duplicate taps.
+When an operator taps **`[🚀 Apply Updates]`**, a message adhering to the following format appears in the `NTFY_CONTROL_TOPIC` feed:
+```text
+apply_updates:pond:1792584058:bed7ec8f5aacb84e:5d3b52569474fdf20d02e430faf2bc0aea5a38bf55fdc18537a3efd9f1a84784
+```
+
+### Why Does This Message Appear?
+Action buttons operate via standard HTTP POST callbacks. Tapping the button causes your mobile or desktop client to send an HTTP POST to the control topic URL. NTFY publishes this message to all subscribers:
+- The managed host (`pond`) receives the message via its background listener and executes the update runner.
+- Your notification client also receives the message because it is subscribed to the topic.
+
+### Why Is This NOT a Security Vulnerability?
+Even if an unauthorized third party monitors the public topic and intercepts this payload, it cannot be weaponized against your fleet:
+
+1. **One-Way Cryptographic Irreversibility**:
+   HMAC-SHA256 is a one-way hash function. It is mathematically impossible to deduce or reverse-engineer `FLEET_SECRET` from the signature string.
+2. **Single-Use Nonce / Anti-Replay Defense**:
+   When the target node (`pond`) accepts the payload, it writes the random seed (`bed7ec8f5aacb84e`) into `/run/updates-notify/consumed_nonces`. If an eavesdropper copies the exact string and posts it again, the node drops it immediately:
+   ```text
+   WARNING: Blocked replayed update command (seed bed7ec8f5aacb84e already consumed).
+   ```
+3. **Strict 24-Hour Expiration (TTL)**:
+   The embedded Unix timestamp (`1792584058`) enforces a 24-hour expiration window. Any payload older than 24 hours is rejected automatically.
+4. **Tamper-Proof Host Targeting**:
+   An attacker cannot change the target host (e.g. changing `pond` to `lake`) or update the timestamp to bypass the TTL. Altering a single byte invalidates the 16-round HMAC signature. Without `FLEET_SECRET`, generating a valid replacement signature is impossible.
+5. **No Arbitrary Remote Code Execution**:
+   The listener never evaluates or executes the message content. It strictly validates the payload structure and only invokes `/usr/local/bin/apply-all-updates.sh`.
+
+### Client Echo Suppression (`headers.Priority=1` & `clear=true`)
+To prevent the control payload from producing noise or waking your phone:
+- **`headers.Priority=1`**: Configured in the action button so the incoming POST registers as minimum priority (`min`), suppressing notification popups, sounds, and vibrations on subscribed devices.
+- **`clear=true`**: Automatically dismisses and clears the original notification prompt from your device's notification tray the instant the button is tapped.
 
 ---
 
-## 4. Publisher Identity Verification (ACL)
+## 5. Publisher Identity Verification (ACL)
 
 `remote-update-listener.sh` connects to the structured NTFY JSON event stream (`/json`) rather than raw text:
 - In the JSON stream, NTFY supplies the authenticated account name in the `"username"` field.
@@ -115,7 +175,7 @@ To prevent accidental double-execution when an operator taps an action button:
 
 ---
 
-## 5. Zero Remote Code Execution (RCE) Guarantee
+## 6. Zero Remote Code Execution (RCE) Guarantee
 
 The remote listener is strictly bounded against code injection:
 - The incoming payload is **never** evaluated with `eval`, passed to `bash -c`, or parsed inside dynamic subshells.
@@ -131,7 +191,7 @@ The remote listener is strictly bounded against code injection:
 
 ---
 
-## 6. GPG Cryptographic Package Verification
+## 7. GPG Cryptographic Package Verification
 
 All updates triggered through the pipeline execute through native package managers:
 - **Debian / Ubuntu**: `apt-get` verifies release signatures against trusted keyrings in `/etc/apt/trusted.gpg.d/` and `/usr/share/keyrings/`.
@@ -140,7 +200,7 @@ All updates triggered through the pipeline execute through native package manage
 
 ---
 
-## 7. Local Filesystem Isolation
+## 8. Local Filesystem Isolation
 
 All sensitive configurations containing tokens, webhook UUIDs, and shared secrets reside in:
 ```text
@@ -155,7 +215,7 @@ Non-root local users and unprivileged service accounts cannot read or traverse t
 
 ---
 
-## 8. Configuring Cryptographic Secrets
+## 9. Configuring Cryptographic Secrets
 
 To enable HMAC-SHA256 signature verification on your fleet:
 
@@ -172,7 +232,7 @@ To enable HMAC-SHA256 signature verification on your fleet:
 
 ---
 
-## 9. Secret Rotation Lifecycle (Routine vs. Emergency)
+## 10. Secret Rotation Lifecycle (Routine vs. Emergency)
 
 Secrets should be rotated periodically (e.g., every 6–12 months) or immediately upon suspicion of a leak. `generate-topic.sh` provides built-in automation for both scenarios:
 
@@ -200,7 +260,7 @@ For immediate containment of a compromised credential or token:
 
 ---
 
-## 10. Watchdog Integration (Healthchecks.io)
+## 11. Watchdog Integration (Healthchecks.io)
 
 Each managed node reports periodic heartbeats to its own private Healthchecks.io check URL (`HC_PING_URL`).
 

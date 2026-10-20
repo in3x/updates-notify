@@ -151,12 +151,12 @@ if [[ "${1:-}" == "--rotate-secret" || "${1:-}" == "--rotate-emergency" ]]; then
 fi
 
 # ==============================================================================
-# MODE: Initial Configuration Generation
+# MODE: Initial Configuration Generation / Non-Destructive Update
 # ==============================================================================
 if [[ $# -lt 1 ]]; then
     echo "Error: Missing required system group name argument." >&2
     echo "Usage:" >&2
-    echo "  Initial setup:      $0 <system-group-name> [ntfy-valid-user] [output-file]" >&2
+    echo "  Generate / Update:  $0 <system-group-name> [ntfy-valid-user] [output-file]" >&2
     echo "  Routine rotation:   $0 --rotate-secret <system-group-name> [config-file]" >&2
     echo "  Emergency rotation: $0 --rotate-emergency <system-group-name> [config-file]" >&2
     exit 1
@@ -166,21 +166,21 @@ SYSTEM_GROUP="$1"
 NTFY_USER="${2:-your-ntfy-username}"
 OUTPUT_FILE="${3:-${REPO_DIR}/site-conf/${SYSTEM_GROUP}/99-local.conf}"
 
-# 1. Generate unique, high-entropy 16-hex suffix for NTFY topics
-HEX_SUFFIX="$(openssl rand -hex 8 2>/dev/null || od -vN 8 -An -tx1 /dev/urandom | tr -d ' \n')"
-ALERTS_TOPIC="${SYSTEM_GROUP}-alerts-${HEX_SUFFIX}"
-REBOOT_TOPIC="${SYSTEM_GROUP}-reboot-${HEX_SUFFIX}"
-CONTROL_TOPIC="${SYSTEM_GROUP}-control-${HEX_SUFFIX}"
-
-# 2. Generate 32-byte (256-bit) FLEET_SECRET and creation date
-FLEET_SECRET="$(openssl rand -hex 32 2>/dev/null || od -vN 32 -An -tx1 /dev/urandom | tr -d ' \n')"
-CREATED_TS="$(date +%s)"
-
-# 3. Create destination directory
 mkdir -p "$(dirname "${OUTPUT_FILE}")"
 
-# 4. Write site configuration file matching 99-local.conf.example format
-cat <<EOF > "${OUTPUT_FILE}"
+if [[ ! -f "${OUTPUT_FILE}" ]]; then
+    # 1. Generate unique, high-entropy 16-hex suffix for NTFY topics
+    HEX_SUFFIX="$(openssl rand -hex 8 2>/dev/null || od -vN 8 -An -tx1 /dev/urandom | tr -d ' \n')"
+    ALERTS_TOPIC="${SYSTEM_GROUP}-alerts-${HEX_SUFFIX}"
+    REBOOT_TOPIC="${SYSTEM_GROUP}-reboot-${HEX_SUFFIX}"
+    CONTROL_TOPIC="${SYSTEM_GROUP}-control-${HEX_SUFFIX}"
+
+    # 2. Generate 32-byte (256-bit) FLEET_SECRET and creation date
+    FLEET_SECRET="$(openssl rand -hex 32 2>/dev/null || od -vN 32 -An -tx1 /dev/urandom | tr -d ' \n')"
+    CREATED_TS="$(date +%s)"
+
+    # 3. Write site configuration file matching 99-local.conf.example format
+    cat <<EOF > "${OUTPUT_FILE}"
 # Host Telemetry & Notification Overrides
 # Deploy to /etc/conditional-reboot.conf.d/99-local.conf (chmod 600, root:root)
 
@@ -218,18 +218,119 @@ REBOOT_DELAY_MINUTES="5"
 BLOCKED_PROCESSES=("apt" "apt-get" "dpkg" "unattended-upgrade" "dnf" "yum" "rpm" "check-updates" "backup_job" "db_migration" "rsync")
 EOF
 
-chmod 0600 "${OUTPUT_FILE}"
+    chmod 0600 "${OUTPUT_FILE}"
 
-echo "==> Site configuration generated successfully!"
-echo "    File:             ${OUTPUT_FILE}"
-echo "    System Group:     ${SYSTEM_GROUP}"
-echo "    Alerts Topic:     ${ALERTS_TOPIC} (urgent errors; target for Healthchecks watchdog)"
-echo "    Reboot Topic:     ${REBOOT_TOPIC} (scheduled reboots, deferrals, boot success)"
-echo "    Control Topic:    ${CONTROL_TOPIC} (updates, action buttons, command listener)"
-echo "    Fleet Secret:     ${FLEET_SECRET:0:16}... (private 256-bit key, completely independent from topics)"
-echo "    Created:          ${CREATED_TS}"
-echo "    NTFY User:        ${NTFY_USER}"
-echo ""
-echo "Note: The NTFY topics and Fleet Secret are separate, independent items."
-echo "      Topics appear in URLs; the secret remains strictly confidential on disk."
-echo "Next step: Open ${OUTPUT_FILE} and fill in your NTFY_TOKEN and HC_PING_URL."
+    echo "==> Site configuration generated successfully!"
+    echo "    File:             ${OUTPUT_FILE}"
+    echo "    System Group:     ${SYSTEM_GROUP}"
+    echo "    Alerts Topic:     ${ALERTS_TOPIC} (urgent errors; target for Healthchecks watchdog)"
+    echo "    Reboot Topic:     ${REBOOT_TOPIC} (scheduled reboots, deferrals, boot success)"
+    echo "    Control Topic:    ${CONTROL_TOPIC} (updates, action buttons, command listener)"
+    echo "    Fleet Secret:     ${FLEET_SECRET:0:16}... (private 256-bit key, completely independent from topics)"
+    echo "    Created:          ${CREATED_TS}"
+    echo "    NTFY User:        ${NTFY_USER}"
+    echo ""
+    echo "Note: The NTFY topics and Fleet Secret are separate, independent items."
+    echo "      Topics appear in URLs; the secret remains strictly confidential on disk."
+    echo "Next step: Open ${OUTPUT_FILE} and fill in your NTFY_TOKEN and HC_PING_URL."
+
+else
+    # Existing file: Strictly preserve any defined NTFY topics and existing FLEET_SECRET
+    echo "-> Existing configuration found at: ${OUTPUT_FILE}"
+    echo "   Checking for missing settings (strictly preserving all defined topics and secrets)..."
+
+    BACKUP_FILE="${OUTPUT_FILE}.$(date +%Y%m%d-%H%M%S).bak"
+    cp -p "${OUTPUT_FILE}" "${BACKUP_FILE}"
+
+    file_modified=0
+    HEX_SUFFIX=""
+
+    get_hex_suffix() {
+        if [[ -z "${HEX_SUFFIX}" ]]; then
+            HEX_SUFFIX="$(openssl rand -hex 8 2>/dev/null || od -vN 8 -An -tx1 /dev/urandom | tr -d ' \n')"
+        fi
+        echo "${HEX_SUFFIX}"
+    }
+
+    # 1. NTFY Topics: Preserve if defined; only generate if completely missing
+    if grep -qE "^[[:space:]]*NTFY_ALERTS_TOPIC=" "${OUTPUT_FILE}"; then
+        echo "   [PRESERVED] NTFY_ALERTS_TOPIC is already defined."
+    else
+        suffix="$(get_hex_suffix)"
+        new_topic="${SYSTEM_GROUP}-alerts-${suffix}"
+        set_conf_variable "${OUTPUT_FILE}" "NTFY_ALERTS_TOPIC" "${new_topic}"
+        echo "   [ADDED] Generated missing NTFY_ALERTS_TOPIC: ${new_topic}"
+        file_modified=1
+    fi
+
+    if grep -qE "^[[:space:]]*NTFY_REBOOT_TOPIC=" "${OUTPUT_FILE}"; then
+        echo "   [PRESERVED] NTFY_REBOOT_TOPIC is already defined."
+    else
+        suffix="$(get_hex_suffix)"
+        new_topic="${SYSTEM_GROUP}-reboot-${suffix}"
+        set_conf_variable "${OUTPUT_FILE}" "NTFY_REBOOT_TOPIC" "${new_topic}"
+        echo "   [ADDED] Generated missing NTFY_REBOOT_TOPIC: ${new_topic}"
+        file_modified=1
+    fi
+
+    if grep -qE "^[[:space:]]*NTFY_CONTROL_TOPIC=" "${OUTPUT_FILE}"; then
+        echo "   [PRESERVED] NTFY_CONTROL_TOPIC is already defined."
+    else
+        suffix="$(get_hex_suffix)"
+        new_topic="${SYSTEM_GROUP}-control-${suffix}"
+        set_conf_variable "${OUTPUT_FILE}" "NTFY_CONTROL_TOPIC" "${new_topic}"
+        echo "   [ADDED] Generated missing NTFY_CONTROL_TOPIC: ${new_topic}"
+        file_modified=1
+    fi
+
+    # 2. FLEET_SECRET: Preserve existing secret; only generate if missing
+    if grep -qE "^[[:space:]]*FLEET_SECRET=" "${OUTPUT_FILE}"; then
+        echo "   [PRESERVED] FLEET_SECRET is already defined (use --rotate-secret or --rotate-emergency to rotate)."
+    else
+        new_secret="$(openssl rand -hex 32 2>/dev/null || od -vN 32 -An -tx1 /dev/urandom | tr -d ' \n')"
+        now_ts="$(date +%s)"
+        set_conf_variable "${OUTPUT_FILE}" "FLEET_SECRET" "${new_secret}"
+        set_conf_variable "${OUTPUT_FILE}" "FLEET_SECRET_CREATED_DATE" "${now_ts}"
+        echo "   [ADDED] Generated missing FLEET_SECRET: ${new_secret:0:16}... (256-bit)"
+        file_modified=1
+    fi
+
+    # 3. NTFY_VALID_USER
+    if grep -qE "^[[:space:]]*#?[[:space:]]*NTFY_VALID_USER=" "${OUTPUT_FILE}"; then
+        echo "   [PRESERVED] NTFY_VALID_USER is already present."
+    elif [[ "${NTFY_USER}" != "your-ntfy-username" ]]; then
+        set_conf_variable "${OUTPUT_FILE}" "NTFY_VALID_USER" "${NTFY_USER}"
+        echo "   [ADDED] Added NTFY_VALID_USER: ${NTFY_USER}"
+        file_modified=1
+    fi
+
+    # 4. Sync missing general settings from template (e.g. REBOOT_DELAY_MINUTES, BLOCKED_PROCESSES)
+    EXAMPLE_CONF="${REPO_DIR}/conf/99-local.conf.example"
+    if [[ -f "${EXAMPLE_CONF}" ]]; then
+        while IFS= read -r line || [[ -n "${line}" ]]; do
+            if [[ "${line}" =~ ^[[:space:]]*([A-Za-z_][A-Za-z0-9_]*)= ]]; then
+                var_name="${BASH_REMATCH[1]}"
+                case "${var_name}" in
+                    NTFY_ALERTS_TOPIC|NTFY_REBOOT_TOPIC|NTFY_CONTROL_TOPIC|NTFY_TOPIC|FLEET_SECRET|FLEET_SECRET_CREATED_DATE|FLEET_SECRET_PREVIOUS|NTFY_VALID_USER)
+                        continue
+                        ;;
+                esac
+                if ! grep -qE "^[[:space:]]*#?[[:space:]]*${var_name}=" "${OUTPUT_FILE}"; then
+                    echo "" >> "${OUTPUT_FILE}"
+                    echo "${line}" >> "${OUTPUT_FILE}"
+                    echo "   [ADDED] Merged template parameter '${var_name}' into site config."
+                    file_modified=1
+                fi
+            fi
+        done < "${EXAMPLE_CONF}"
+    fi
+
+    chmod 0600 "${OUTPUT_FILE}"
+
+    if (( file_modified == 1 )); then
+        echo "==> Configuration updated successfully while strictly preserving all existing topics and secrets!"
+    else
+        rm -f "${BACKUP_FILE}"
+        echo "==> Configuration is already up to date. All defined topics and Fleet Secret were untouched."
+    fi
+fi

@@ -208,40 +208,64 @@ backup_and_rotate_config() {
     fi
 }
 
-# Merge New Configuration Keys & Reference Defaults into Working Config File
+# Check if a configuration value is a dummy/template placeholder
+is_placeholder_value() {
+    local val="$1"
+    local clean_val
+    clean_val="$(echo "${val}" | tr -d '"'\'' ')"
+
+    case "${clean_val}" in
+        ""|"your-token-here"|"your-uuid-here"|"https://hc-ping.com/your-uuid-here"|"your-topic-here"|"your-ntfy-username"|"your-32-byte-hex-secret-here"|"your-alerts-topic"|"your-reboot-topic"|"your-control-topic")
+            return 0
+            ;;
+        *)
+            return 1
+            ;;
+    esac
+}
+
+# Merge Configuration Keys & Reference Defaults into Destination File
 merge_config_settings() {
-    local example="$1"
+    local source_conf="$1"
     local dest="$2"
     local max_backups="${3:-3}"
 
-    if [[ ! -f "${example}" || ! -f "${dest}" ]]; then
+    if [[ ! -f "${source_conf}" || ! -f "${dest}" ]]; then
         return 0
     fi
 
-    local -a tmpl_vars=()
-    local -A tmpl_assign=()
-    local -A tmpl_optional=()
-    local -A tmpl_comments=()
+    # Read source configuration variables
+    local -a src_vars=()
+    local -A src_assign=()
+    local -A src_val=()
+    local -A src_optional=()
+    local -A src_comments=()
 
     local pending_comment=""
-    while IFS= read -r line || [[ -n "${line}" ]]; do
-        if [[ "${line}" =~ ^[[:space:]]*#[[:space:]]*([A-Za-z_][A-Za-z0-9_]*)= ]]; then
+    while IFS= read -r raw_line || [[ -n "${raw_line}" ]]; do
+        local line="${raw_line%$'\r'}"
+
+        if [[ "${line}" =~ ^[[:space:]]*#[[:space:]]*([A-Za-z_][A-Za-z0-9_]*)=(.*)$ ]]; then
             local vname="${BASH_REMATCH[1]}"
+            local val="${BASH_REMATCH[2]}"
             local raw_assign
             raw_assign="$(echo "${line}" | sed -E 's/^[[:space:]]*#[[:space:]]*//')"
-            tmpl_vars+=("${vname}")
-            tmpl_assign["${vname}"]="${raw_assign}"
-            tmpl_optional["${vname}"]=1
-            tmpl_comments["${vname}"]="${pending_comment}"
+            src_vars+=("${vname}")
+            src_assign["${vname}"]="${raw_assign}"
+            src_val["${vname}"]="${val}"
+            src_optional["${vname}"]=1
+            src_comments["${vname}"]="${pending_comment}"
             pending_comment=""
-        elif [[ "${line}" =~ ^[[:space:]]*([A-Za-z_][A-Za-z0-9_]*)= ]]; then
+        elif [[ "${line}" =~ ^[[:space:]]*([A-Za-z_][A-Za-z0-9_]*)=(.*)$ ]]; then
             local vname="${BASH_REMATCH[1]}"
+            local val="${BASH_REMATCH[2]}"
             local raw_assign
             raw_assign="$(echo "${line}" | sed -E 's/^[[:space:]]*//')"
-            tmpl_vars+=("${vname}")
-            tmpl_assign["${vname}"]="${raw_assign}"
-            tmpl_optional["${vname}"]=0
-            tmpl_comments["${vname}"]="${pending_comment}"
+            src_vars+=("${vname}")
+            src_assign["${vname}"]="${raw_assign}"
+            src_val["${vname}"]="${val}"
+            src_optional["${vname}"]=0
+            src_comments["${vname}"]="${pending_comment}"
             pending_comment=""
         elif [[ "${line}" =~ ^[[:space:]]*# ]]; then
             if [[ -z "${pending_comment}" ]]; then
@@ -252,25 +276,47 @@ merge_config_settings() {
         elif [[ "${line}" =~ ^[[:space:]]*$ ]]; then
             pending_comment=""
         fi
-    done < "${example}"
+    done < "${source_conf}"
 
     local -a new_dest_lines=()
     local -A seen_in_dest=()
-    local dest_modified=0
     local prev_was_default_for=""
 
-    while IFS= read -r line || [[ -n "${line}" ]]; do
+    while IFS= read -r raw_line || [[ -n "${raw_line}" ]]; do
+        local line="${raw_line%$'\r'}"
+
+        # Sanitize malformed lines (e.g. missing '#' before 'Default:' comment)
+        if [[ "${line}" =~ ^[[:space:]]*Default:[[:space:]]* ]]; then
+            line="# ${line}"
+        fi
+        # Sanitize space between '=' and '(' in array assignments (e.g. 'VAR= (...)')
+        if [[ "${line}" =~ ^([[:space:]]*[A-Za-z_][A-Za-z0-9_]*=)[[:space:]]+\((.*)$ ]]; then
+            line="${BASH_REMATCH[1]}(${BASH_REMATCH[2]}"
+        fi
+
         # 1. Existing '# Default: VAR=...' line
-        if [[ "${line}" =~ ^[[:space:]]*#[[:space:]]*Default:[[:space:]]*([A-Za-z_][A-Za-z0-9_]*)= ]]; then
+        if [[ "${line}" =~ ^[[:space:]]*#[[:space:]]*Default:[[:space:]]*([A-Za-z_][A-Za-z0-9_]*)=(.*)$ ]]; then
             local vname="${BASH_REMATCH[1]}"
-            if [[ -n "${tmpl_assign[${vname}]:-}" ]]; then
-                local expected_default="# Default: ${tmpl_assign[${vname}]}"
+            local def_val="${BASH_REMATCH[2]}"
+
+            # If this was a site-specific credential that got an accidental '# Default:' line matching its value, purge it
+            case "${vname}" in
+                NTFY_ALERTS_TOPIC|NTFY_REBOOT_TOPIC|NTFY_CONTROL_TOPIC|NTFY_TOPIC|FLEET_SECRET|FLEET_SECRET_CREATED_DATE|FLEET_SECRET_PREVIOUS|NTFY_VALID_USER|NTFY_TOKEN|HC_PING_URL)
+                    if [[ -n "${src_val[${vname}]:-}" && "${def_val}" == "${src_val[${vname}]}" ]]; then
+                        prev_was_default_for=""
+                        continue
+                    fi
+                    ;;
+            esac
+
+            if [[ -n "${src_assign[${vname}]:-}" ]]; then
+                local expected_default="# Default: ${src_assign[${vname}]}"
                 if [[ "${line}" != "${expected_default}" ]]; then
                     new_dest_lines+=("${expected_default}")
-                    dest_modified=1
                     echo "   [UPDATE] Updated reference default for '${vname}'."
                 else
                     new_dest_lines+=("${line}")
+                    echo "   [UNCHANGED] Reference default for '${vname}' is unchanged."
                 fi
                 prev_was_default_for="${vname}"
                 continue
@@ -278,22 +324,55 @@ merge_config_settings() {
         fi
 
         # 2. Active assignment: VAR=...
-        if [[ "${line}" =~ ^[[:space:]]*([A-Za-z_][A-Za-z0-9_]*)= ]]; then
+        if [[ "${line}" =~ ^[[:space:]]*([A-Za-z_][A-Za-z0-9_]*)=(.*)$ ]]; then
             local vname="${BASH_REMATCH[1]}"
+            local cur_val="${BASH_REMATCH[2]}"
             seen_in_dest["${vname}"]=1
 
-            # If template defines this variable, ensure the default comment precedes it
-            if [[ -n "${tmpl_assign[${vname}]:-}" ]]; then
-                if [[ "${prev_was_default_for}" != "${vname}" ]]; then
-                    new_dest_lines+=("# Default: ${tmpl_assign[${vname}]}")
-                    dest_modified=1
-                    echo "   [MERGE] Placed reference default above active '${vname}'."
+            # Check if source defines this variable
+            if [[ -n "${src_assign[${vname}]:-}" ]]; then
+                # Protection: If source provides a dummy placeholder, NEVER overwrite a working live value!
+                if is_placeholder_value "${src_val[${vname}]:-}" && ! is_placeholder_value "${cur_val}"; then
+                    new_dest_lines+=("${line}")
+                    echo "   [PRESERVED] Preserved working '${vname}' (ignored placeholder from source)."
+                    new_dest_lines+=("")
+                    prev_was_default_for=""
+                    continue
                 fi
+
+                # Insert '# Default:' only for generic settings when default differs from local value
+                case "${vname}" in
+                    NTFY_ALERTS_TOPIC|NTFY_REBOOT_TOPIC|NTFY_CONTROL_TOPIC|NTFY_TOPIC|FLEET_SECRET|FLEET_SECRET_CREATED_DATE|FLEET_SECRET_PREVIOUS|NTFY_VALID_USER|NTFY_TOKEN|HC_PING_URL)
+                        ;;
+                    *)
+                        if [[ "${cur_val}" != "${src_val[${vname}]}" && "${prev_was_default_for}" != "${vname}" ]]; then
+                            new_dest_lines+=("# Default: ${src_assign[${vname}]}")
+                            echo "   [MERGE] Placed reference default above '${vname}'."
+                        fi
+                        ;;
+                esac
+
+                # If source specifies an active assignment, check if value changed
+                if (( src_optional[${vname}] == 0 )); then
+                    local target_assign="${src_assign[${vname}]}"
+                    if [[ "${line}" != "${target_assign}" ]]; then
+                        new_dest_lines+=("${target_assign}")
+                        echo "   [UPDATE] Updated '${vname}'."
+                    else
+                        new_dest_lines+=("${line}")
+                        echo "   [UNCHANGED] '${vname}' is unchanged."
+                    fi
+                else
+                    new_dest_lines+=("${line}")
+                    echo "   [UNCHANGED] '${vname}' is unchanged."
+                fi
+            else
+                new_dest_lines+=("${line}")
+                echo "   [UNCHANGED] '${vname}' is unchanged."
             fi
-            new_dest_lines+=("${line}")
-            # Ensure blank line separation after the variable assignment
+
+            # Ensure blank line separation after variable block
             new_dest_lines+=("")
-            dest_modified=1
             prev_was_default_for=""
             continue
         fi
@@ -302,6 +381,7 @@ merge_config_settings() {
         if [[ "${line}" =~ ^[[:space:]]*#[[:space:]]*([A-Za-z_][A-Za-z0-9_]*)= ]]; then
             local vname="${BASH_REMATCH[1]}"
             seen_in_dest["${vname}"]=1
+            echo "   [UNCHANGED] '${vname}' (optional) is unchanged."
         fi
 
         # Avoid consecutive redundant blank lines
@@ -317,24 +397,22 @@ merge_config_settings() {
         prev_was_default_for=""
     done < "${dest}"
 
-    # 4. Check for any template variables missing from dest
-    for vname in "${tmpl_vars[@]}"; do
+    # 4. Check for any source variables missing from dest
+    for vname in "${src_vars[@]}"; do
         if [[ -z "${seen_in_dest[${vname}]:-}" ]]; then
-            echo "   [MERGE] Adding new setting '${vname}' from template..."
-            dest_modified=1
+            echo "   [ADDED] Adding new setting '${vname}'..."
             if (( ${#new_dest_lines[@]} > 0 )) && [[ "${new_dest_lines[-1]}" != "" ]]; then
                 new_dest_lines+=("")
             fi
-            if [[ -n "${tmpl_comments[${vname}]:-}" ]]; then
+            if [[ -n "${src_comments[${vname}]:-}" ]]; then
                 while IFS= read -r c_line; do
                     new_dest_lines+=("${c_line}")
-                done <<< "${tmpl_comments[${vname}]}"
+                done <<< "${src_comments[${vname}]}"
             fi
-            if (( tmpl_optional[${vname}] == 1 )); then
-                new_dest_lines+=("# ${tmpl_assign[${vname}]}")
+            if (( src_optional[${vname}] == 1 )); then
+                new_dest_lines+=("# ${src_assign[${vname}]}")
             else
-                new_dest_lines+=("# Default: ${tmpl_assign[${vname}]}")
-                new_dest_lines+=("${tmpl_assign[${vname}]}")
+                new_dest_lines+=("${src_assign[${vname}]}")
             fi
             new_dest_lines+=("")
         fi
@@ -348,9 +426,9 @@ merge_config_settings() {
     if ! cmp -s "${tmp_file}" "${dest}"; then
         backup_and_rotate_config "${dest}" "${max_backups}"
         install -m 0600 -o root -g root "${tmp_file}" "${dest}"
-        echo "   [MERGED] Config updated with defaults and blank-line spacing while strictly preserving site values & comments."
+        echo "   [MERGED] Configuration file updated (backup created)."
     else
-        echo "   [UNCHANGED] ${dest} contains all template settings and defaults."
+        echo "   [UNCHANGED] All configuration values and defaults are up to date."
     fi
     rm -f "${tmp_file}"
 }
@@ -405,16 +483,10 @@ fi
 if [[ ! -f "${CONF_FILE}" ]]; then
     echo "   [NEW FILE] Installing ${SOURCE_CONF} as ${CONF_FILE}..."
     install -m 0600 -o root -g root "${SOURCE_CONF}" "${CONF_FILE}"
-    if [[ "${SOURCE_CONF}" != "${EXAMPLE_FILE}" && -f "${EXAMPLE_FILE}" ]]; then
-        merge_config_settings "${EXAMPLE_FILE}" "${CONF_FILE}"
-    fi
 else
     echo "   [EXISTS] Merging configuration into operational ${CONF_FILE}..."
     if [[ -f "${SOURCE_CONF}" ]]; then
         merge_config_settings "${SOURCE_CONF}" "${CONF_FILE}"
-    fi
-    if [[ "${SOURCE_CONF}" != "${EXAMPLE_FILE}" && -f "${EXAMPLE_FILE}" ]]; then
-        merge_config_settings "${EXAMPLE_FILE}" "${CONF_FILE}"
     fi
     chmod 0600 "${CONF_FILE}"
     chown root:root "${CONF_FILE}"

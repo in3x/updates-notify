@@ -10,11 +10,13 @@ NTFY_REBOOT_TOPIC="your-reboot-topic"
 NTFY_CONTROL_TOPIC="your-control-topic"
 
 # Legacy Single-Topic Fallback (used only if 3-topic channels above are unset)
-# NTFY_TOPIC="your-topic-here"
+# NTFY_TOPIC:  use this in a channel per machine configuration
 
+# NTFY_TOKEN: Per machine authentication token. If a machine is compromised, revoke the token in NTFY to lock it out of the pod.
 NTFY_TOKEN="your-token-here"
 
-# Healthchecks.io Ping URL (Note: In Healthchecks.io dashboard, configure NTFY integration pointing to NTFY_ALERTS_TOPIC)
+# Healthchecks.io per maching Ping URL (Note: In Healthchecks.io dashboard, configure NTFY integration pointing to NTFY_ALERTS_TOPIC.
+# each HC alert to NTFY share the same NYTFY access token)
 HC_PING_URL="https://hc-ping.com/your-uuid-here"
 
 # Optional: Dedicated NTFY command topic for remote action button triggers (defaults to <NTFY_TOPIC>-cmd)

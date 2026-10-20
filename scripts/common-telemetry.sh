@@ -155,7 +155,7 @@ get_apply_updates_action() {
         fi
     fi
 
-    local action="http, 🚀 Apply Updates (${host_tag}), ${NTFY_URL:-https://ntfy.sh}/${cmd_topic}, body=${body}, clear=true"
+    local action="http, 🚀 Apply Updates (${host_tag}), ${NTFY_URL:-https://ntfy.sh}/${cmd_topic}, body=${body}, clear=true, headers.Priority=1"
     if [[ -n "${NTFY_TOKEN:-}" ]]; then
         action="${action}, headers.Authorization=Bearer ${NTFY_TOKEN}"
     fi
