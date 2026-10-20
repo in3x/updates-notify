@@ -22,42 +22,47 @@ Unintentional, cloud-independent micro-automation stack for system updates for b
 
 ---
 
-## Deployment
+## Deployment Steps
 
-Follow these steps to deploy the pipeline across target Linux nodes.
+The deployment process has been automated as far as one reasonably can. The deployment process breaks into 4 distinct areas:
+- Prerequisite installation
+- Site configuration
+- Actual deployment
+- Per-machine configuration 
 
 ### Prerequisites
 
-> **Automatic Dependency Resolution:** The `deploy.sh` script automatically detects, provisions repositories (CRB / EPEL on RHEL), and installs all missing dependencies (`unattended-upgrades`, `dnf-utils`, `dnf-automatic`, `etckeeper`, `git`). It also verifies whether `etckeeper` is already initialized so existing `/etc` git history is strictly preserved.  Design notes are found at: [Automated Dependency Provisioning & Safe etckeeper Detection](docs/design.md#automated-dependency-provisioning-safe-etckeeper-detection).
+> **Automatic Dependency Resolution:** The `deploy.sh` script automatically detects, provisions repositories (CRB / EPEL on RHEL), and installs all missing dependencies (`unattended-upgrades`, `dnf-utils`, `dnf-automatic`, `etckeeper`, `git`). It also verifies whether `etckeeper` is already initialized so existing `/etc` git history is strictly preserved. Design notes are found at: [Automated Dependency Provisioning & Safe etckeeper Detection](docs/design.md#automated-dependency-provisioning-safe-etckeeper-detection).
 
 If you prefer to pre-install dependencies manually before deploying:
 
-* **RHEL 9 / 10+ Hosts:**
-  ```bash
-  # Dynamically resolve RHEL major version (9, 10, etc.)
-  rhel_ver=$(rpm -E %rhel)
+- **RHEL 9 / 10+ Hosts:**
+    ```bash
+    # Dynamically resolve RHEL major version (9, 10, etc.)
+    rhel_ver=$(rpm -E %rhel)
 
-  # Enable CodeReady Linux Builder (CRB)
-  sudo subscription-manager repos --enable codeready-builder-for-rhel-${rhel_ver}-$(arch)-rpms
+    # Enable CodeReady Linux Builder (CRB)
+    sudo subscription-manager repos --enable codeready-builder-for-rhel-${rhel_ver}-$(arch)-rpms
 
-  # Install EPEL (for etckeeper)
-  sudo dnf install -y https://dl.fedoraproject.org/pub/epel/epel-release-latest-${rhel_ver}.noarch.rpm
+    # Install EPEL (for etckeeper)
+    sudo dnf install -y https://dl.fedoraproject.org/pub/epel/epel-release-latest-${rhel_ver}.noarch.rpm
 
-  # Install package manager utilities and cryptographic tools
-  if (( rhel_ver >= 10 )); then
-      sudo dnf install -y dnf-plugins-core etckeeper git openssl curl
-  else
-      sudo dnf install -y dnf-utils dnf-automatic etckeeper git openssl curl
-  fi
-  ```
-* **Ubuntu / Debian Hosts:** Ensure `unattended-upgrades`, `etckeeper`, `openssl`, and `curl` are installed:
-  ```bash
-  sudo apt-get install -y unattended-upgrades etckeeper git openssl curl
-  ```
+    # Install package manager utilities and cryptographic tools
+    if (( rhel_ver >= 10 )); then
+        sudo dnf install -y dnf-plugins-core etckeeper git openssl curl
+    else
+        sudo dnf install -y dnf-utils dnf-automatic etckeeper git openssl curl
+    fi
+    ```
+- **Ubuntu / Debian Hosts:** Ensure `unattended-upgrades`, `etckeeper`, `openssl`, and `curl` are installed:
+    ```bash
+    sudo apt-get install -y unattended-upgrades etckeeper git openssl curl
+    ```
 
 ---
 
 ### 1. Generate Site Configuration
+
 Use `generate-topic.sh` to generate a site configuration populated with two distinct, independent items: a unique public NTFY topic name (for URLs) and a private 256-bit `FLEET_SECRET` (for HMAC signing, never shared or derived from the topic):
 
 ```bash
@@ -73,18 +78,8 @@ Edit `site-conf/homelab/99-local.conf` to add your `NTFY_TOKEN` and `HC_PING_URL
 nano site-conf/homelab/99-local.conf
 ```
 
-*(Note: `site-conf/*` is excluded via `.gitignore` so your secrets and tokens are never checked into version control.)*
+_(Note: `site-conf/*` is excluded via `.gitignore` so your secrets and tokens are never checked into version control.)_
 
-#### Rotating Secrets
-Rotate keys periodically or in emergencies using `generate-topic.sh`:
-
-```bash
-# Routine zero-downtime rotation (24h grace window for pending buttons):
-./scripts/generate-topic.sh --rotate-secret homelab
-
-# Emergency rotation (immediate revocation and lockout):
-./scripts/generate-topic.sh --rotate-emergency homelab
-```
 
 ---
 
@@ -98,11 +93,48 @@ Run `deploy.sh` as `root` passing your system group name. The script installs sc
 sudo ./deploy.sh homelab
 ```
 
-*If `etckeeper` is installed, the script automatically stages `/etc` prior to deployment and commits all changes upon completion.*
+_If `etckeeper` is installed, the script automatically stages `/etc` prior to deployment and commits all changes upon completion._
 
 ---
 
-### 3. Verify Package Managers & Systemd Timers
+### 3. Configuring The notifications and watchdog timeout. .
+
+This update notify package organizes sets of machines into groups. Each group shares 3 NTFY 
+topics between all of the machines in the group. Each machine has its own health check timer. 
+Each health check timer is integrated with email and ntfy clients. The ntfy client in health 
+check is connected to the group's alerts topic.
+
+Each connection to ntfy channels requires an access token. Each machine in the group gets its 
+own access token and uses that token to speak to all 3 of the shared topics. The health checks 
+in the ntfy integration use a single token for all of the checks in a given group. This 
+works out to N+1 NTFY access tokens, and N health check timers.
+
+When the watchdog timer fires, it will send an ntfy message through the common alerts 
+channel for any machine.
+
+#### Starting Health checks configuration
+
+1. On setup of the health checks NTFY integration
+  1. Create an ntfy access token named <group name> watchdog. 
+  1. In healthchecks.io's ntfy integration settings
+    1. Topic should be the name of the group's alerts topic.
+    1. Set access token to the `<group name>` watchdog token value.
+
+#### Starting NTFY configuration
+
+1. Create an NTFY Reserved topics for each topic in site-conf/<group name>/99-local.conf with permissions:
+  1. NTFY_ALERTS_TOPIC: I can publish and subscribe, everyone can subscribe
+  1. NTFY_REBOOT_TOPIC: I can publish and subscribe, everyone can subscribe
+  1. NTFY_CONTROL_TOPIC: Only I can publish and subscribe
+
+#### NTFY and Health checks set up
+
+1. For each machines in the system group,
+  1. Create access token labled "<host> pw-dc-topics" 
+  1. Edit /etc/conditional-reboot.conf.d/99-local.conf
+  1. Define NTFY_TOKEN with the machine specific token
+
+### 4. Verify Package Managers & Systemd Timers
 
 Verify that systemd timers are active and package managers merge your local configuration overrides:
 
@@ -119,7 +151,7 @@ sudo systemctl status dnf-automatic.timer
 
 ---
 
-### 4. Validate Telemetry & Reboot Logic
+### 5. Validate Telemetry & Reboot Logic
 
 Verify notification dispatches and test conditional reboot evaluation under simulated conditions:
 
@@ -132,4 +164,18 @@ sudo journalctl -t conditional-reboot -n 20
 
 # 3. Simulate an in-window execution check using libfaketime
 sudo faketime '03:30:00' /usr/local/bin/conditional-reboot.sh
+```
+## security methods
+This section will enumerate what you need to do when different security events arise and how to remedy them. 
+
+#### Rotating Secrets
+
+Rotate keys periodically or in emergencies using `generate-topic.sh`:
+
+```bash
+# Routine zero-downtime rotation (24h grace window for pending buttons):
+./scripts/generate-topic.sh --rotate-secret homelab
+
+# Emergency rotation (immediate revocation and lockout):
+./scripts/generate-topic.sh --rotate-emergency homelab
 ```

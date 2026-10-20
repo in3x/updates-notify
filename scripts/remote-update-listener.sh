@@ -57,13 +57,13 @@ while true; do
             sender_user="${BASH_REMATCH[1]}"
         fi
 
-        # Enforce publisher verification ACL if configured
-        if [[ -n "${EXPECTED_USER}" && "${sender_user}" != "${EXPECTED_USER}" ]]; then
-            logger -t remote-listener "WARNING: Blocked execution attempt from unauthorized publisher '${sender_user:-anonymous}'"
+        logger -t remote-listener "Received event payload: ${msg}"
+
+        # Enforce publisher verification ACL if username is provided in JSON stream
+        if [[ -n "${EXPECTED_USER}" && -n "${sender_user}" && "${sender_user}" != "${EXPECTED_USER}" ]]; then
+            logger -t remote-listener "WARNING: Blocked execution attempt from unauthorized publisher '${sender_user}'"
             continue
         fi
-
-        logger -t remote-listener "Received event payload: ${msg}"
 
         target_matched=0
         max_ttl=86400  # 24-hour maximum validity window
