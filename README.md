@@ -21,7 +21,25 @@ Unintentional, cloud-independent micro-automation stack for system updates for b
 - **Topic Generation Utility**: Built-in CLI tool (`generate-topic.sh`) to produce unique, high-entropy NTFY topic names and site configurations.
 
 ---
+## Why not Ansible? 
 
+It's a matter of scale and complexity. Ansible has a scaling down problem and is relatively complex. The more I dug into it, the more I realized I would have to create many of the infrastructure scripts that I have here. 
+
+Updates-notify solves the problem of:
+- Automatic security updates.
+- Optional installation non-security updates.
+- Automatic rebooting.
+- Notification of success or failure of various operations.
+- Relatively low complexity of install and configuration.
+- Handling a relatively small number of machines that do not have to be on the same network. 
+
+If I had more than 15–20 machines to keep up to date, then I would look at Ansible, combined with some of the capabilities of updates-notify. 
+
+## Why did I name it what I did? 
+
+I'm blaming Gemini for this one. On the other hand, I think it knew that I am banned from naming children and animals in 38 states.
+
+---
 ## Deployment Steps
 
 The deployment process has been automated as far as one reasonably can. The deployment process breaks into 4 distinct areas:
