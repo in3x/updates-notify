@@ -90,6 +90,14 @@ graph TD
 | **`NTFY_REBOOT_TOPIC`** | Scheduled reboots (5m countdown), deferral notices, and post-boot startup confirmations. | **High** | Alerts you when a reboot is pending or confirms when a node has successfully returned online. |
 | **`NTFY_CONTROL_TOPIC`** | Outstanding update digests, interactive `[🚀 Apply Updates]` buttons, and the listener daemon. | **Default** | Houses remote action triggers; secured via HMAC-SHA256 signatures and publisher ACLs. |
 
+### Channel Allocation Map
+
+| Channel | Target Topic | Associated Messages & Triggers | Priority | Source Script / Service |
+| :--- | :--- | :--- | :--- | :--- |
+| **Alerts** | `NTFY_ALERTS_TOPIC` | • `🚨 Systemd Execution Failure`<br>• `❌ Updates Failed`<br>• `⚠️ Reboot Aborted`<br>• `🚨 Pipeline Failure`<br>• Healthchecks.io watchdog down/timeout alerts | `urgent` | • `systemd-failure-notify.sh`<br>• `apply-all-updates.sh`<br>• `conditional-reboot.sh`<br>• `common-telemetry.sh` (`failure_handler`)<br>• Healthchecks.io integration |
+| **Reboot** | `NTFY_REBOOT_TOPIC` | • `🔄 Reboot Scheduled` (5m countdown)<br>• `ℹ️ Reboot Deferred` (active user sessions, outside window, process/file locks)<br>• `✅ Boot Successful` (system back online) | `high` / `default` | • `conditional-reboot.sh`<br>• `post-boot-notify.sh` |
+| **Control** | `NTFY_CONTROL_TOPIC` | • `📦 Updates Available`<br>• `📦 Weekly Updates Digest`<br>• `⏳ Updates In Progress`<br>• `✅ Updates Completed`<br>• `[🚀 Apply Updates]` action button POST target<br>• `remote-update-listener.sh` subscription stream | `default` (min priority on button click) | • `check-updates.sh`<br>• `pending-updates-digest.sh`<br>• `apply-all-updates.sh`<br>• `common-telemetry.sh`<br>• `remote-update-listener.sh` |
+
 ### Fleet Multi-Host Differentiation
 On shared topics spanning multiple machines:
 - **Title Prefixing**: All telemetry messages automatically prepend `[<hostname>]` (e.g. `[pond] 🔄 Reboot Scheduled`).
@@ -140,7 +148,7 @@ The pipeline supports remote action buttons via NTFY (e.g. `[🚀 Apply All Upda
 To enable zero-touch bootstrapping across heterogeneous fleets, `deploy.sh` automates the dependency and repository resolution process:
 
 - **RHEL Ecosystem (RHEL 9+, CentOS Stream, Rocky Linux, AlmaLinux)**:
-  - **Dynamic Version Detection**: Evaluates the native `%rhel` packaging macro via `rpm -E %rhel` with integer validation, cleanly extracting the major version (`9`, `10`, etc.) across bare-metal and virtual Enterprise Linux hosts.
+  - **Dynamic Version Detection**: Extracts the active major version at runtime from `/etc/os-release` (`VERSION_ID`), with `rpm -E %rhel` fallback, cleanly validating an integer (`9`, `10`, etc.) across bare-metal and virtual Enterprise Linux hosts.
   - **CodeReady Linux Builder (CRB)**: Automatically activates the CRB / PowerTools repository, which is required to satisfy upstream package dependencies for EPEL tools:
     - On registered RHEL nodes: `subscription-manager repos --enable codeready-builder-for-rhel-${rhel_ver}-$(arch)-rpms`
     - On RHEL clones / standard DNF systems: `crb enable` or `dnf config-manager --set-enabled crb`

@@ -96,8 +96,12 @@ send_ntfy() {
     local caller_name
     caller_name="$(basename "${caller_file}")"
 
+    # Convert any literal '\n' escape sequences into real newline characters
+    local formatted_message
+    formatted_message="$(printf '%b' "${message}")"
+
     local first_lines
-    first_lines=$(echo "${message}" | head -n 2 | tr '\n' ' ')
+    first_lines=$(echo "${formatted_message}" | head -n 2 | tr '\n' ' ')
 
     logger -t "ntfy-dispatch" "[${caller_name}:${caller_line}] [${channel}->${target_topic}] Priority='${priority}' Title='${title}' Body='${first_lines}'"
 
@@ -108,7 +112,7 @@ send_ntfy() {
     [[ -n "${actions}" ]] && headers+=(-H "Actions: ${actions}")
 
     curl -s "${headers[@]}" \
-         -d "${message}" \
+         --data-binary "${formatted_message}" \
          "${NTFY_URL:-https://ntfy.sh}/${target_topic}" >/dev/null 2>&1 || true
 }
 

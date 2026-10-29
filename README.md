@@ -50,31 +50,55 @@ The deployment process has been automated as far as one reasonably can. The depl
 
 ### Prerequisites
 
-> **Automatic Dependency Resolution:** The `deploy.sh` script automatically detects, provisions repositories (CRB / EPEL on RHEL), and installs all missing dependencies (`unattended-upgrades`, `dnf-utils`, `dnf-automatic`, `etckeeper`, `git`). It also verifies whether `etckeeper` is already initialized so existing `/etc` git history is strictly preserved. Design notes are found at: [Automated Dependency Provisioning & Safe etckeeper Detection](docs/design.md#automated-dependency-provisioning-safe-etckeeper-detection).
+> **Automatic Dependency Resolution:** The `deploy.sh` script automatically detects your distribution, provisions required repositories (CRB / EPEL on RHEL family), and installs all missing dependencies (`unattended-upgrades`, `dnf-utils` / `dnf-plugins-core`, `dnf-automatic` on RHEL 9, `etckeeper`, `git`, `openssl`, `curl`). It also checks whether `etckeeper` is already initialized so existing `/etc` version control history is strictly preserved. See design notes: [Automated Dependency Provisioning & Safe etckeeper Detection](docs/design.md#automated-dependency-provisioning-safe-etckeeper-detection).
 
 If you prefer to pre-install dependencies manually before deploying:
 
-- **RHEL 9 / 10+ Hosts:**
+- **RHEL 9 / 10+ & Clones (Rocky, Alma, CentOS Stream):**
     ```bash
-    # Dynamically resolve RHEL major version (9, 10, etc.)
-    rhel_ver=$(rpm -E %rhel)
+    # 1. Resolve RHEL major version (9, 10, etc.) from /etc/os-release
+    rhel_ver=$(. /etc/os-release && echo "${VERSION_ID%%.*}")
 
-    # Enable CodeReady Linux Builder (CRB)
-    sudo subscription-manager repos --enable codeready-builder-for-rhel-${rhel_ver}-$(arch)-rpms
+    # 2. Enable CodeReady Linux Builder (CRB)
+    if command -v subscription-manager >/dev/null 2>&1; then
+        sudo subscription-manager repos --enable "codeready-builder-for-rhel-${rhel_ver}-$(arch)-rpms"
+    elif command -v crb >/dev/null 2>&1; then
+        sudo FORCE_DNF=1 /usr/bin/crb enable
+    else
+        sudo dnf config-manager --set-enabled crb 2>/dev/null || sudo dnf config-manager --set-enabled powertools 2>/dev/null
+    fi
 
-    # Install EPEL (for etckeeper)
-    sudo dnf install -y https://dl.fedoraproject.org/pub/epel/epel-release-latest-${rhel_ver}.noarch.rpm
+    # 3. Enable EPEL (required for etckeeper)
+    sudo dnf install -y epel-release 2>/dev/null || \
+    sudo dnf install -y "https://dl.fedoraproject.org/pub/epel/epel-release-latest-${rhel_ver}.noarch.rpm"
 
-    # Install package manager utilities and cryptographic tools
+    # 4. Install package utilities, version control, and cryptographic tools
     if (( rhel_ver >= 10 )); then
         sudo dnf install -y dnf-plugins-core etckeeper git openssl curl
     else
         sudo dnf install -y dnf-utils dnf-automatic etckeeper git openssl curl
     fi
+
+    # 5. Initialize etckeeper (only if /etc/.git does not already exist)
+    if [[ ! -d /etc/.git && ! -d /etc/.hg && ! -d /etc/.bzr ]]; then
+        sudo etckeeper init
+        sudo etckeeper commit "Initial etckeeper commit prior to deployment"
+    fi
     ```
-- **Ubuntu / Debian Hosts:** Ensure `unattended-upgrades`, `etckeeper`, `openssl`, and `curl` are installed:
+
+- **Ubuntu / Debian Hosts:**
     ```bash
+    # 1. Update package indexes
+    sudo apt-get update -qq
+
+    # 2. Install unattended upgrades, version control, and cryptographic tools
     sudo apt-get install -y unattended-upgrades etckeeper git openssl curl
+
+    # 3. Initialize etckeeper (only if /etc/.git does not already exist)
+    if [[ ! -d /etc/.git && ! -d /etc/.hg && ! -d /etc/.bzr ]]; then
+        sudo etckeeper init
+        sudo etckeeper commit "Initial etckeeper commit prior to deployment"
+    fi
     ```
 
 ---
@@ -106,7 +130,7 @@ _(Note: `site-conf/*` is excluded via `.gitignore` so your secrets and tokens ar
 Run `deploy.sh` as `root` passing your system group name. The script installs scripts, systemd units, package manager drop-ins, and merges your site configuration into `/etc/conditional-reboot.conf.d/99-local.conf`:
 
 ```bash
-# Syntax: sudo ./deploy.sh [system-group-name]
+# Syntax: sudo ./deploy.sh <system-group-name>
 
 sudo ./deploy.sh homelab
 ```
@@ -182,6 +206,37 @@ sudo journalctl -t conditional-reboot -n 20
 
 # 3. Simulate an in-window execution check using libfaketime
 sudo faketime '03:30:00' /usr/local/bin/conditional-reboot.sh
+```
+
+---
+
+### 6. Validate Outstanding Updates & Remote Action Triggering
+
+Test the optional/outstanding updates discovery pipeline, remote action buttons, and background listener:
+
+```bash
+# 1. Trigger the outstanding updates scan manually
+# If upgradable packages exist, this dispatches a "📦 Updates Available" 
+# notification to NTFY_CONTROL_TOPIC with the interactive [🚀 Apply Updates] button.
+sudo /usr/local/bin/check-updates.sh
+
+# 2. Verify scan results in system logs
+sudo journalctl -t check-updates -n 20 --no-pager
+
+# 3. Verify the remote command listener daemon is active and listening
+sudo systemctl status remote-update-listener.service
+
+# 4. Monitor live incoming command events on the listener
+sudo journalctl -u remote-update-listener -f
+
+# 5. Test the upgrade runner directly (applies packages and sends status telemetry)
+sudo /usr/local/bin/apply-all-updates.sh
+
+# 6. Inspect package upgrade log file
+sudo tail -n 30 /var/log/package-upgrades.log
+
+# 7. Test the weekly Friday updates digest
+sudo /usr/local/bin/pending-updates-digest.sh
 ```
 ## security methods
 This section will enumerate what you need to do when different security events arise and how to remedy them. 
