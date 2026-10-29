@@ -252,3 +252,55 @@ Rotate keys periodically or in emergencies using `generate-topic.sh`:
 # Emergency rotation (immediate revocation and lockout):
 ./scripts/generate-topic.sh --rotate-emergency homelab
 ```
+
+---
+
+## When to Restart Systemd Services
+
+The systemd units in `updates-notify` fall into two distinct categories: **oneshot services** (which spawn, execute, and exit) and **one persistent daemon** (`remote-update-listener.service`).
+
+### 1. The Only Service Requiring Restarts: `remote-update-listener.service`
+
+Because `remote-update-listener` runs continuously in the background holding a live connection to NTFY, it keeps its configuration in memory.
+
+Restart it only when:
+- **Credentials or topics change in `99-local.conf`**:
+  - Rotated `FLEET_SECRET`
+  - Changed `NTFY_CONTROL_TOPIC`, `NTFY_TOKEN`, or `NTFY_VALID_USER`
+- **Listener code is updated on disk**:
+  - Modified `/usr/local/bin/remote-update-listener.sh` or `/usr/local/bin/common-telemetry.sh`
+
+```bash
+sudo systemctl restart remote-update-listener.service
+```
+
+### 2. Services That Never Need Restarts (Oneshot Tasks)
+
+* `conditional-reboot.service`
+* `check-updates.service`
+* `pending-updates-digest.service`
+* `post-boot-notify.service`
+* `failure-notification@.service`
+
+These services do not run in the background. Systemd starts them fresh whenever their scheduled timer triggers, and they exit upon completion. Any changes to maintenance windows, blocked processes, or Healthchecks URLs in `99-local.conf` are automatically read from disk on the next scheduled run.
+
+### 3. Reloading Timers (`*.timer`)
+
+Timers only need to be reloaded if you modify their execution schedule inside the `/etc/systemd/system/*.timer` file itself (e.g. changing `OnCalendar=`):
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl restart conditional-reboot.timer
+```
+
+### Quick Reference Checklist
+
+| Action Taken | Restart Required? | Command |
+| :--- | :--- | :--- |
+| **Edited maintenance windows / blocked processes in `99-local.conf`** | ❌ **No** | Nothing (read fresh on next run). |
+| **Rotated `FLEET_SECRET` or changed `NTFY_CONTROL_TOPIC`** | ✅ **Yes** | `sudo systemctl restart remote-update-listener.service` |
+| **Edited scripts (`conditional-reboot.sh`, `check-updates.sh`)** | ❌ **No** | Nothing (read fresh on next run). |
+| **Edited `remote-update-listener.sh`** | ✅ **Yes** | `sudo systemctl restart remote-update-listener.service` |
+| **Ran `generate-topic.sh --rotate-secret`** | ✅ **Handled** | The script prompts and restarts it automatically. |
+| **Ran `sudo ./deploy.sh <group>`** | ✅ **Handled** | `deploy.sh` automatically reloads daemon and restarts the listener. |
+| **Changed timer schedule (`.timer`)** | ✅ **Yes** | `sudo systemctl daemon-reload && sudo systemctl restart <name>.timer` |
