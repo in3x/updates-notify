@@ -1,6 +1,6 @@
 # Automated Security Patching & Reboot Orchestration
 
-Unintentional, cloud-independent micro-automation stack for system updates for both security and outstanding packages supporting Ubuntu (22.04+) and RHEL (9+).
+Unintentional, cloud-independent micro-automation stack for system updates for both security and outstanding packages, supporting Ubuntu (22.04+) and RHEL (9+).
 
 ## Features
 
@@ -42,7 +42,7 @@ I'm blaming Gemini for this one. On the other hand, I think it knew that I am ba
 ---
 ## Deployment Steps
 
-The deployment process has been automated as far as one reasonably can. The deployment process breaks into 4 distinct areas:
+The deployment process is as automated as one reasonably can. The deployment process breaks into 4 distinct areas:
 - Prerequisite installation
 - Site configuration
 - Actual deployment
@@ -141,7 +141,7 @@ _If `etckeeper` is installed, the script automatically stages `/etc` prior to de
 
 ### 3. Configuring The notifications and watchdog timeout. .
 
-This update notify package organizes sets of machines into groups. Each group shares 3 NTFY 
+This updates-notify package organizes sets of machines into groups. Each group shares 3 NTFY 
 topics between all of the machines in the group. Each machine has its own health check timer. 
 Each health check timer is integrated with email and ntfy clients. The ntfy client in health 
 check is connected to the group's alerts topic.
@@ -157,25 +157,30 @@ channel for any machine.
 #### Starting Health checks configuration
 
 1. On setup of the health checks NTFY integration
-  1. Create an ntfy access token named <group name> watchdog. 
-  1. In healthchecks.io's ntfy integration settings
-    1. Topic should be the name of the group's alerts topic.
-    1. Set access token to the `<group name>` watchdog token value.
+  1. Create a ntfy access token named <group name> watchdog. 
+  1. In healthchecks.io's NTFY integration settings
+    1. The topic should be the name of the group's alerts topic.
+    1. Set the access token to the `<group name>` watchdog token value.
 
 #### Starting NTFY configuration
 
-1. Create an NTFY Reserved topics for each topic in site-conf/<group name>/99-local.conf with permissions:
+1. Create NTFY Reserved topics for each topic in site-conf/<group name>/99-local.conf with permissions:
   1. NTFY_ALERTS_TOPIC: I can publish and subscribe, everyone can subscribe
   1. NTFY_REBOOT_TOPIC: I can publish and subscribe, everyone can subscribe
   1. NTFY_CONTROL_TOPIC: Only I can publish and subscribe
 
 #### NTFY and Health checks set up
 
-1. For each machines in the system group,
-  1. Create access token labled "<host> pw-dc-topics" 
-  1. Edit /etc/conditional-reboot.conf.d/99-local.conf
-  1. Define NTFY_TOKEN with the machine specific token
-
+1. Edit /etc/conditional-reboot.conf.d/99-local.conf
+1. For each machine in the system group,
+  1. ntfy setup
+    1. Create a machine-specific access token labeled "<host> pw-dc-topics" (create access token)
+    1. Copy the machine-specific token into NTFY_TOKEN
+  1 health checks setup
+    1. Create a new check (add check)
+    1. Name check: pw-<host>-failsafe
+    1. Copy the ping URL into HC_PING_URL
+    
 ### 4. Verify Package Managers & Systemd Timers
 
 Verify that systemd timers are active and package managers merge your local configuration overrides:
