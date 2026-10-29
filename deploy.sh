@@ -527,8 +527,9 @@ systemctl daemon-reload
 systemctl enable --now conditional-reboot.timer
 systemctl enable --now check-updates.timer
 systemctl enable --now pending-updates-digest.timer
-systemctl enable --now remote-update-listener.service
 systemctl enable post-boot-notify.service
+systemctl enable remote-update-listener.service
+systemctl restart remote-update-listener.service
 
 if command -v dnf-automatic >/dev/null 2>&1; then
     systemctl enable --now dnf-automatic.timer
