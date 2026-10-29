@@ -41,7 +41,7 @@ FAIL_FLAG_FILE="/run/package-update.failed"
 # 4. Inspect Prior Pipeline Failures
 if [[ -f "${FAIL_FLAG_FILE}" ]]; then
     logger -t conditional-reboot "Aborting: Prior package update failure flag (${FAIL_FLAG_FILE}) detected."
-    send_ntfy "alerts" "⚠️ Reboot Aborted" "Reboot skipped on ${HOSTNAME}: Package installation reported failures." "high"
+    send_ntfy "alerts" "⚠️ Reboot Aborted" "Reboot skipped on ${HOSTNAME}: Package installation reported failures." "urgent"
     ping_hc "fail"
     exit 1
 fi

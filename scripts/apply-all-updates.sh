@@ -99,7 +99,7 @@ if [[ "${UPGRADE_SUCCESS}" == "true" ]]; then
         PKG_DETAILS_MSG="📦 Upgraded packages: ${PACKAGES_TO_UPGRADE}"$'\n\n'
     fi
 
-    send_ntfy "control" "✅ Updates Completed" "Full package upgrade on ${HOSTNAME} finished successfully.\n\n${PKG_DETAILS_MSG}${REBOOT_STATUS}" "high"
+    send_ntfy "control" "✅ Updates Completed" "Full package upgrade on ${HOSTNAME} finished successfully.\n\n${PKG_DETAILS_MSG}${REBOOT_STATUS}" "default"
     ping_hc ""
     exit 0
 else
