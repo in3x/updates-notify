@@ -58,6 +58,7 @@ if [[ -f /etc/redhat-release ]]; then
     command -v git >/dev/null 2>&1 || MISSING_RHEL_PKGS+=("git")
     command -v openssl >/dev/null 2>&1 || MISSING_RHEL_PKGS+=("openssl")
     command -v curl >/dev/null 2>&1 || MISSING_RHEL_PKGS+=("curl")
+    command -v faketime >/dev/null 2>&1 || MISSING_RHEL_PKGS+=("faketime")
 
     if [[ ${#MISSING_RHEL_PKGS[@]} -gt 0 ]]; then
         echo "   Missing package(s): ${MISSING_RHEL_PKGS[*]}"
@@ -94,6 +95,7 @@ elif [[ -f /etc/debian_version ]]; then
     command -v git >/dev/null 2>&1 || MISSING_DEB_PKGS+=("git")
     command -v openssl >/dev/null 2>&1 || MISSING_DEB_PKGS+=("openssl")
     command -v curl >/dev/null 2>&1 || MISSING_DEB_PKGS+=("curl")
+    command -v faketime >/dev/null 2>&1 || MISSING_DEB_PKGS+=("faketime")
 
     if [[ ${#MISSING_DEB_PKGS[@]} -gt 0 ]]; then
         echo "   Missing package(s): ${MISSING_DEB_PKGS[*]}"

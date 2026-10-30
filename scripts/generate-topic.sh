@@ -11,9 +11,12 @@
 #   The topic name and the secret are completely independent and not derived from one another.
 #
 # Usage:
-#   1. Initial generation: creates site configuration with unique topic & separate secret
+#   1. Initial generation: creates site configuration with unique topic namespace & separate secret
+#      ./scripts/generate-topic.sh <system-group-name> <ntfy-valid-user> [output-file]
 #   2. Routine rotation (--rotate-secret): rotates FLEET_SECRET with 24h grace window
+#      ./scripts/generate-topic.sh --rotate-secret <system-group-name> [config-file]
 #   3. Emergency rotation (--rotate-emergency): immediately revokes old secret
+#      ./scripts/generate-topic.sh --rotate-emergency <system-group-name> [config-file]
 #
 # Usage:
 #   ./scripts/generate-topic.sh <system-group-name> [ntfy-valid-user] [output-file]
@@ -153,27 +156,35 @@ fi
 # ==============================================================================
 # MODE: Initial Configuration Generation / Non-Destructive Update
 # ==============================================================================
-if [[ $# -lt 1 ]]; then
-    echo "Error: Missing required system group name argument." >&2
+if [[ $# -lt 2 ]]; then
+    echo "Error: Missing required arguments." >&2
     echo "Usage:" >&2
-    echo "  Generate / Update:  $0 <system-group-name> [ntfy-valid-user] [output-file]" >&2
+    echo "  Generate / Update:  $0 <system-group-name> <ntfy-valid-user> [output-file]" >&2
     echo "  Routine rotation:   $0 --rotate-secret <system-group-name> [config-file]" >&2
     echo "  Emergency rotation: $0 --rotate-emergency <system-group-name> [config-file]" >&2
+    echo "" >&2
+    echo "Example: $0 homelab eric" >&2
     exit 1
 fi
 
 SYSTEM_GROUP="$1"
-NTFY_USER="${2:-your-ntfy-username}"
+NTFY_USER="$2"
 OUTPUT_FILE="${3:-${REPO_DIR}/site-conf/${SYSTEM_GROUP}/99-local.conf}"
+
+if [[ -z "${NTFY_USER}" || "${NTFY_USER}" == "your-ntfy-username" ]]; then
+    echo "Error: A valid ntfy-valid-user username is required to enforce access control." >&2
+    exit 1
+fi
 
 mkdir -p "$(dirname "${OUTPUT_FILE}")"
 
 if [[ ! -f "${OUTPUT_FILE}" ]]; then
-    # 1. Generate unique, high-entropy 16-hex suffix for NTFY topics
-    HEX_SUFFIX="$(openssl rand -hex 8 2>/dev/null || od -vN 8 -An -tx1 /dev/urandom | tr -d ' \n')"
-    ALERTS_TOPIC="${SYSTEM_GROUP}-alerts-${HEX_SUFFIX}"
-    REBOOT_TOPIC="${SYSTEM_GROUP}-reboot-${HEX_SUFFIX}"
-    CONTROL_TOPIC="${SYSTEM_GROUP}-control-${HEX_SUFFIX}"
+    # 1. Generate unique, high-entropy 16-hex prefix for NTFY topic namespace
+    HEX_PREFIX="$(openssl rand -hex 8 2>/dev/null || od -vN 8 -An -tx1 /dev/urandom | tr -d ' \n')"
+    GROUP_NAMESPACE="${HEX_PREFIX}-${SYSTEM_GROUP}"
+    ALERTS_TOPIC="${GROUP_NAMESPACE}/alerts"
+    REBOOT_TOPIC="${GROUP_NAMESPACE}/reboot"
+    CONTROL_TOPIC="${GROUP_NAMESPACE}/control"
 
     # 2. Generate 32-byte (256-bit) FLEET_SECRET and creation date
     FLEET_SECRET="$(openssl rand -hex 32 2>/dev/null || od -vN 32 -An -tx1 /dev/urandom | tr -d ' \n')"
@@ -184,7 +195,7 @@ if [[ ! -f "${OUTPUT_FILE}" ]]; then
 # Host Telemetry & Notification Overrides
 # Deploy to /etc/conditional-reboot.conf.d/99-local.conf (chmod 600, root:root)
 
-# NTFY Fleet Topics (3-Channel Architecture)
+# NTFY Fleet Topics (3-Channel Architecture: <16_HEX_PREFIX>-<SYSTEM_GROUP>/<SUBTOPIC>)
 # NTFY_ALERTS_TOPIC:  Urgent failures (systemd crashes, update failures). ALSO target for Healthchecks.io watchdog!
 # NTFY_REBOOT_TOPIC:  Reboot notifications (scheduled, deferred, and boot success confirmation)
 # NTFY_CONTROL_TOPIC: Outstanding updates, remote action buttons, and command listener
@@ -203,7 +214,7 @@ HC_PING_URL="https://hc-ping.com/your-uuid-here"
 # Optional: Dedicated NTFY command topic for remote action button triggers (defaults to NTFY_CONTROL_TOPIC)
 # NTFY_CMD_TOPIC="${CONTROL_TOPIC}"
 
-# Optional: Restrict remote action triggers to a verified publisher username (NTFY JSON stream ACL)
+# Required: Restrict remote action triggers to a verified publisher username (NTFY JSON stream ACL)
 NTFY_VALID_USER="${NTFY_USER}"
 
 # Optional: Shared cryptographic secret for HMAC-SHA256 signing of remote action buttons
@@ -223,7 +234,8 @@ EOF
     echo "==> Site configuration generated successfully!"
     echo "    File:             ${OUTPUT_FILE}"
     echo "    System Group:     ${SYSTEM_GROUP}"
-    echo "    Alerts Topic:     ${ALERTS_TOPIC} (urgent errors; target for Healthchecks watchdog)"
+    echo "    Group Namespace:  ${GROUP_NAMESPACE}"
+    echo "    Alerts Topic:     ${ALERTS_TOPIC} (urgent alarms; observer stream & Healthchecks watchdog)"
     echo "    Reboot Topic:     ${REBOOT_TOPIC} (scheduled reboots, deferrals, boot success)"
     echo "    Control Topic:    ${CONTROL_TOPIC} (updates, action buttons, command listener)"
     echo "    Fleet Secret:     ${FLEET_SECRET:0:16}... (private 256-bit key, completely independent from topics)"
@@ -243,21 +255,21 @@ else
     cp -p "${OUTPUT_FILE}" "${BACKUP_FILE}"
 
     file_modified=0
-    HEX_SUFFIX=""
+    HEX_PREFIX=""
 
-    get_hex_suffix() {
-        if [[ -z "${HEX_SUFFIX}" ]]; then
-            HEX_SUFFIX="$(openssl rand -hex 8 2>/dev/null || od -vN 8 -An -tx1 /dev/urandom | tr -d ' \n')"
+    get_hex_prefix() {
+        if [[ -z "${HEX_PREFIX}" ]]; then
+            HEX_PREFIX="$(openssl rand -hex 8 2>/dev/null || od -vN 8 -An -tx1 /dev/urandom | tr -d ' \n')"
         fi
-        echo "${HEX_SUFFIX}"
+        echo "${HEX_PREFIX}"
     }
 
     # 1. NTFY Topics: Preserve if defined; only generate if completely missing
     if grep -qE "^[[:space:]]*NTFY_ALERTS_TOPIC=" "${OUTPUT_FILE}"; then
         echo "   [PRESERVED] NTFY_ALERTS_TOPIC is already defined."
     else
-        suffix="$(get_hex_suffix)"
-        new_topic="${SYSTEM_GROUP}-alerts-${suffix}"
+        prefix="$(get_hex_prefix)"
+        new_topic="${prefix}-${SYSTEM_GROUP}/alerts"
         set_conf_variable "${OUTPUT_FILE}" "NTFY_ALERTS_TOPIC" "${new_topic}"
         echo "   [ADDED] Generated missing NTFY_ALERTS_TOPIC: ${new_topic}"
         file_modified=1
@@ -266,8 +278,8 @@ else
     if grep -qE "^[[:space:]]*NTFY_REBOOT_TOPIC=" "${OUTPUT_FILE}"; then
         echo "   [PRESERVED] NTFY_REBOOT_TOPIC is already defined."
     else
-        suffix="$(get_hex_suffix)"
-        new_topic="${SYSTEM_GROUP}-reboot-${suffix}"
+        prefix="$(get_hex_prefix)"
+        new_topic="${prefix}-${SYSTEM_GROUP}/reboot"
         set_conf_variable "${OUTPUT_FILE}" "NTFY_REBOOT_TOPIC" "${new_topic}"
         echo "   [ADDED] Generated missing NTFY_REBOOT_TOPIC: ${new_topic}"
         file_modified=1
@@ -276,8 +288,12 @@ else
     if grep -qE "^[[:space:]]*NTFY_CONTROL_TOPIC=" "${OUTPUT_FILE}"; then
         echo "   [PRESERVED] NTFY_CONTROL_TOPIC is already defined."
     else
-        suffix="$(get_hex_suffix)"
-        new_topic="${SYSTEM_GROUP}-control-${suffix}"
+        prefix="$(get_hex_prefix)"
+        new_topic="${prefix}-${SYSTEM_GROUP}/control"
+        set_conf_variable "${OUTPUT_FILE}" "NTFY_CONTROL_TOPIC" "${new_topic}"
+        echo "   [ADDED] Generated missing NTFY_CONTROL_TOPIC: ${new_topic}"
+        file_modified=1
+    fi
         set_conf_variable "${OUTPUT_FILE}" "NTFY_CONTROL_TOPIC" "${new_topic}"
         echo "   [ADDED] Generated missing NTFY_CONTROL_TOPIC: ${new_topic}"
         file_modified=1

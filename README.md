@@ -50,7 +50,7 @@ The deployment process is as automated as one reasonably can. The deployment pro
 
 ### Prerequisites
 
-> **Automatic Dependency Resolution:** The `deploy.sh` script automatically detects your distribution, provisions required repositories (CRB / EPEL on RHEL family), and installs all missing dependencies (`unattended-upgrades`, `dnf-utils` / `dnf-plugins-core`, `dnf-automatic` on RHEL 9, `etckeeper`, `git`, `openssl`, `curl`). It also checks whether `etckeeper` is already initialized so existing `/etc` version control history is strictly preserved. See design notes: [Automated Dependency Provisioning & Safe etckeeper Detection](docs/design.md#automated-dependency-provisioning-safe-etckeeper-detection).
+> **Automatic Dependency Resolution:** The `deploy.sh` script automatically detects your distribution, provisions required repositories (CRB / EPEL on RHEL family), and installs all missing dependencies (`unattended-upgrades`, `dnf-utils` / `dnf-plugins-core`, `dnf-automatic` on RHEL 9, `etckeeper`, `git`, `openssl`, `curl`, `faketime`). It also checks whether `etckeeper` is already initialized so existing `/etc` version control history is strictly preserved. See design notes: [Automated Dependency Provisioning & Safe etckeeper Detection](docs/design.md#automated-dependency-provisioning-safe-etckeeper-detection).
 
 If you prefer to pre-install dependencies manually before deploying:
 
@@ -72,11 +72,11 @@ If you prefer to pre-install dependencies manually before deploying:
     sudo dnf install -y epel-release 2>/dev/null || \
     sudo dnf install -y "https://dl.fedoraproject.org/pub/epel/epel-release-latest-${rhel_ver}.noarch.rpm"
 
-    # 4. Install package utilities, version control, and cryptographic tools
+    # 4. Install package utilities, version control, cryptographic, and testing tools
     if (( rhel_ver >= 10 )); then
-        sudo dnf install -y dnf-plugins-core etckeeper git openssl curl
+        sudo dnf install -y dnf-plugins-core etckeeper git openssl curl faketime
     else
-        sudo dnf install -y dnf-utils dnf-automatic etckeeper git openssl curl
+        sudo dnf install -y dnf-utils dnf-automatic etckeeper git openssl curl faketime
     fi
 
     # 5. Initialize etckeeper (only if /etc/.git does not already exist)
@@ -91,8 +91,8 @@ If you prefer to pre-install dependencies manually before deploying:
     # 1. Update package indexes
     sudo apt-get update -qq
 
-    # 2. Install unattended upgrades, version control, and cryptographic tools
-    sudo apt-get install -y unattended-upgrades etckeeper git openssl curl
+    # 2. Install unattended upgrades, version control, cryptographic, and testing tools
+    sudo apt-get install -y unattended-upgrades etckeeper git openssl curl faketime
 
     # 3. Initialize etckeeper (only if /etc/.git does not already exist)
     if [[ ! -d /etc/.git && ! -d /etc/.hg && ! -d /etc/.bzr ]]; then
@@ -105,14 +105,19 @@ If you prefer to pre-install dependencies manually before deploying:
 
 ### 1. Generate Site Configuration
 
-Use `generate-topic.sh` to generate a site configuration populated with two distinct, independent items: a unique public NTFY topic name (for URLs) and a private 256-bit `FLEET_SECRET` (for HMAC signing, never shared or derived from the topic):
+Use `generate-topic.sh` to generate a site configuration populated with the 3-topic fleet architecture under a shared group namespace (`https://ntfy.sh/<16_HEX_PREFIX>-<SYSTEM_GROUP>/<SUBTOPIC>`) and an independent 256-bit `FLEET_SECRET` (for HMAC signing, never shared or derived from the topics). Providing a valid `ntfy-valid-user` is mandatory to enforce access control:
 
 ```bash
-# Syntax: ./scripts/generate-topic.sh <system-group-name> [ntfy-valid-user] [output-file]
+# Syntax: ./scripts/generate-topic.sh <system-group-name> <ntfy-valid-user> [output-file]
 
 ./scripts/generate-topic.sh homelab eric
 # Output: Writes to site-conf/homelab/99-local.conf (chmod 0600)
 ```
+
+This generates three dedicated subtopics:
+1. **Alerts Topic (`<hex>-<group>/alerts`):** Observer stream dedicated to critical alarms, systemd execution failures, package update errors, and Healthchecks.io watchdog down events. Configured for maximum urgency (`urgent`). Observers cannot see or trigger action buttons.
+2. **Reboot Topic (`<hex>-<group>/reboot`):** Dedicated to scheduled reboots (5-minute countdowns), deferrals, and post-boot startup confirmations.
+3. **Control Topic (`<hex>-<group>/control`):** Dedicated exclusively to outstanding update digests, the background listener daemon (`remote-update-listener.service`), and interactive `[🚀 Apply Updates]` action buttons. Access is strictly controlled.
 
 Edit `site-conf/homelab/99-local.conf` to add your `NTFY_TOKEN` and `HC_PING_URL`:
 
@@ -173,13 +178,13 @@ channel for any machine.
 
 1. Edit /etc/conditional-reboot.conf.d/99-local.conf
 1. For each machine in the system group,
-  1. ntfy setup
-    1. Create a machine-specific access token labeled "<host> pw-dc-topics" (create access token)
-    1. Copy the machine-specific token into NTFY_TOKEN
-  1 health checks setup
-    1. Create a new check (add check)
-    1. Name check: pw-<host>-failsafe
-    1. Copy the ping URL into HC_PING_URL
+   1. ntfy setup
+      1. Create a machine-specific access token labeled `<host> pw-dc-topics` (create access token)
+      1. Copy the machine-specific token into NTFY_TOKEN
+   1. health checks setup
+      1. Create a new check (add check)
+      1. Name check: `pw-<host>-failsafe`
+      1. Copy the ping URL into HC_PING_URL
     
 ### 4. Verify Package Managers & Systemd Timers
 

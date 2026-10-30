@@ -33,13 +33,15 @@ fi
 while true; do
     logger -t remote-listener "Connecting to NTFY event stream: ${STREAM_URL}"
 
-    local_headers=()
+    stream_headers=()
     if [[ -n "${NTFY_TOKEN:-}" ]]; then
-        local_headers=(-H "Authorization: Bearer ${NTFY_TOKEN}")
+        stream_headers=(-H "Authorization: Bearer ${NTFY_TOKEN}")
     fi
 
-    # Subscribe to structured JSON event stream
-    curl -s -N "${local_headers[@]}" "${STREAM_URL}" 2>/dev/null | while IFS= read -r json_line; do
+    curl_err_file="$(mktemp)"
+
+    # Subscribe to structured JSON event stream with error capture
+    curl -fsS -N "${stream_headers[@]}" "${STREAM_URL}" 2>"${curl_err_file}" | while IFS= read -r json_line; do
         [[ -z "${json_line}" ]] && continue
 
         # Only process message events (cleanly ignore keepalive, open, etc.)
@@ -61,7 +63,7 @@ while true; do
 
         # Enforce publisher verification ACL if username is provided in JSON stream
         if [[ -n "${EXPECTED_USER}" && -n "${sender_user}" && "${sender_user}" != "${EXPECTED_USER}" ]]; then
-            logger -t remote-listener "WARNING: Blocked execution attempt from unauthorized publisher '${sender_user}'"
+            logger -t remote-listener "SECURITY VIOLATION: Blocked execution attempt from unauthorized publisher '${sender_user}'"
             continue
         fi
 
@@ -102,7 +104,7 @@ while true; do
                 fi
 
                 if (( sig_valid == 0 )); then
-                    logger -t remote-listener "SECURITY ALERT: Invalid HMAC signature on command payload for ${MY_HOSTNAME}. Dropped."
+                    logger -t remote-listener "SECURITY VIOLATION: Invalid HMAC signature on command payload for ${MY_HOSTNAME}. Dropped."
                     continue
                 fi
             fi
@@ -111,7 +113,7 @@ while true; do
             now="$(date +%s)"
             age=$(( now - cmd_ts ))
             if (( age > max_ttl || age < -300 )); then
-                logger -t remote-listener "WARNING: Command payload expired (age: ${age}s, max TTL: ${max_ttl}s). Dropped."
+                logger -t remote-listener "SECURITY VIOLATION: Command payload expired (age: ${age}s, max TTL: ${max_ttl}s). Dropped."
                 continue
             fi
 
@@ -120,7 +122,7 @@ while true; do
             mkdir -p "${nonce_dir}"
             nonce_file="${nonce_dir}/consumed_nonces"
             if [[ -f "${nonce_file}" ]] && grep -qFx "${cmd_seed}:${cmd_sig}" "${nonce_file}" 2>/dev/null; then
-                logger -t remote-listener "WARNING: Blocked replayed update command (seed ${cmd_seed} already consumed)."
+                logger -t remote-listener "SECURITY VIOLATION: Blocked replayed update command (seed ${cmd_seed} already consumed)."
                 continue
             fi
 
@@ -159,7 +161,7 @@ while true; do
                 fi
 
                 if (( sig_valid == 0 )); then
-                    logger -t remote-listener "SECURITY ALERT: Invalid HMAC signature on command payload for ${MY_HOSTNAME}. Dropped."
+                    logger -t remote-listener "SECURITY VIOLATION: Invalid HMAC signature on command payload for ${MY_HOSTNAME}. Dropped."
                     continue
                 fi
             fi
@@ -167,7 +169,7 @@ while true; do
             now="$(date +%s)"
             age=$(( now - cmd_ts ))
             if (( age > max_ttl || age < -300 )); then
-                logger -t remote-listener "WARNING: Command payload expired (age: ${age}s, max TTL: ${max_ttl}s). Dropped."
+                logger -t remote-listener "SECURITY VIOLATION: Command payload expired (age: ${age}s, max TTL: ${max_ttl}s). Dropped."
                 continue
             fi
 
@@ -175,7 +177,7 @@ while true; do
             mkdir -p "${nonce_dir}"
             nonce_file="${nonce_dir}/consumed_nonces"
             if [[ -f "${nonce_file}" ]] && grep -qFx "${cmd_ts}:${cmd_sig}" "${nonce_file}" 2>/dev/null; then
-                logger -t remote-listener "WARNING: Blocked replayed update command (nonce ${cmd_ts} already consumed)."
+                logger -t remote-listener "SECURITY VIOLATION: Blocked replayed update command (nonce ${cmd_ts} already consumed)."
                 continue
             fi
 
@@ -186,10 +188,12 @@ while true; do
         elif [[ "${msg}" == "apply_updates:${MY_HOSTNAME}" || "${msg}" == "apply_updates:${HOSTNAME}" || "${msg}" == "apply_updates_${MY_HOSTNAME}" || "${msg}" == "apply_updates_${HOSTNAME}" || "${msg}" == "apply_all_updates" ]]; then
             # If FLEET_SECRET is enforced on this node, reject unauthenticated legacy payloads
             if [[ -n "${FLEET_SECRET:-}" ]]; then
-                logger -t remote-listener "SECURITY WARNING: Dropped unsigned payload '${msg}' because FLEET_SECRET is required on this host."
+                logger -t remote-listener "SECURITY VIOLATION: Dropped unsigned payload '${msg}' because FLEET_SECRET is required on this host."
                 continue
             fi
             target_matched=1
+        else
+            logger -t remote-listener "SECURITY VIOLATION: Unrecognized or unauthorized command payload received: '${msg}'. Dropped."
         fi
 
         if (( target_matched == 1 )); then
@@ -204,6 +208,12 @@ while true; do
             fi
         fi
     done || true
+
+    if [[ -s "${curl_err_file}" ]]; then
+        err_msg="$(head -n 2 "${curl_err_file}" | tr '\n' ' ')"
+        logger -t remote-listener "ERROR: curl connection to '${STREAM_URL}' failed: ${err_msg}"
+    fi
+    rm -f "${curl_err_file}"
 
     logger -t remote-listener "Stream disconnected. Reconnecting in 10 seconds..."
     sleep 10

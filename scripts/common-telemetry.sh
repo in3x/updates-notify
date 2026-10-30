@@ -37,7 +37,10 @@ ping_hc() {
     if [[ -n "${HC_PING_URL:-}" ]]; then
         local url="${HC_PING_URL}"
         [[ -n "${status}" ]] && url="${url}/${status}"
-        curl -fsS -m 10 "${url}" >/dev/null 2>&1 || true
+        local hc_err
+        if ! hc_err=$(curl -fsS -m 10 "${url}" 2>&1 >/dev/null); then
+            logger -t "hc-dispatch" "[${caller_name}:${caller_line}] ERROR: Healthchecks ping to '${url}' failed: ${hc_err}"
+        fi
     fi
 }
 
@@ -111,9 +114,12 @@ send_ntfy() {
     headers+=(-H "Priority: ${priority}")
     [[ -n "${actions}" ]] && headers+=(-H "Actions: ${actions}")
 
-    curl -s "${headers[@]}" \
+    local ntfy_err
+    if ! ntfy_err=$(curl -fsS "${headers[@]}" \
          --data-binary "${formatted_message}" \
-         "${NTFY_URL:-https://ntfy.sh}/${target_topic}" >/dev/null 2>&1 || true
+         "${NTFY_URL:-https://ntfy.sh}/${target_topic}" 2>&1 >/dev/null); then
+        logger -t "ntfy-dispatch" "[${caller_name}:${caller_line}] ERROR: NTFY curl dispatch to [${channel}->${target_topic}] failed: ${ntfy_err}"
+    fi
 }
 
 compute_payload_hmac() {

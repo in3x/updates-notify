@@ -60,8 +60,8 @@ To compromise a node, an adversary would have to breach **both** your private NT
 When using public NTFY servers or shared topics without paid server-side write restrictions, the pipeline provides end-to-end cryptographic payload authentication via `FLEET_SECRET`.
 
 ### Complete Separation of Public Topics and Private Secrets
-The public NTFY topic name and the `FLEET_SECRET` are generated as **two completely independent random values**:
-- **`NTFY_TOPIC`** (`pw-<group>-updates-<16-hex>`): A public, high-entropy routing endpoint visible in URLs.
+The public NTFY topic endpoints and the `FLEET_SECRET` are generated as **two completely independent random values**:
+- **Topic Namespace** (`https://ntfy.sh/<16_RANDOM_HEX_CHARS>-<SYSTEM_GROUP_NAME>/<SUBTOPIC>`): A public, high-entropy routing endpoint visible in URLs with separate functional subtopics (`/alerts`, `/reboot`, `/control`).
 - **`FLEET_SECRET`** (256-bit hex): A confidential, host-isolated signing key locked down (`0600 root:root`) in `/etc/conditional-reboot.conf.d/99-local.conf`.
 
 The topic name is **never derived from, combined with, or related to** the secret. Even if an attacker monitors or intercepts the topic URL, zero knowledge of the signing key is leaked.
@@ -108,11 +108,11 @@ graph TD
     B -->|Yes| D{FLEET_SECRET Configured?}
     D -->|No| E{Publisher ACL Valid?}
     D -->|Yes| F{Recompute & Verify 16-Round HMAC}
-    F -->|Invalid Signature| G[SECURITY ALERT: Drop & log alert]
+    F -->|Invalid Signature| G[SECURITY VIOLATION: Drop & log alert]
     F -->|Valid Signature| H{Check Payload Age: TTL < 24h}
-    H -->|Expired| I[Drop: Command expired]
+    H -->|Expired| I[SECURITY VIOLATION: Command expired]
     H -->|Valid| J{Check Random Seed in /run/updates-notify/consumed_nonces}
-    J -->|Already Consumed| K[WARNING: Drop replayed command]
+    J -->|Already Consumed| K[SECURITY VIOLATION: Drop replayed command]
     J -->|Fresh Seed| L[Record Seed in /run]
     E -->|Valid| M[Execute /usr/local/bin/apply-all-updates.sh]
     L --> M
@@ -161,14 +161,15 @@ To prevent the control payload from producing noise or waking your phone:
 
 ---
 
-## 5. Publisher Identity Verification (ACL)
+## 5. Publisher Identity Verification & Mandatory `ntfy-valid-user` Credentials
 
 `remote-update-listener.sh` connects to the structured NTFY JSON event stream (`/json`) rather than raw text:
 - In the JSON stream, NTFY supplies the authenticated account name in the `"username"` field.
-- If `NTFY_VALID_USER` is configured in `/etc/conditional-reboot.conf.d/99-local.conf`, the listener drops any message published by anonymous users or unapproved accounts:
+- **Mandatory Username Enforcement**: Topic generation (`generate-topic.sh`) requires a valid `ntfy-valid-user` username upfront to prevent unauthorized namespace squatting.
+- If `NTFY_VALID_USER` is configured in `/etc/conditional-reboot.conf.d/99-local.conf`, the listener drops any message published by unauthorized accounts and audits the security violation:
   ```bash
-  if [[ -n "${EXPECTED_USER}" && "${sender_user}" != "${EXPECTED_USER}" ]]; then
-      logger -t remote-listener "WARNING: Blocked execution attempt from unauthorized publisher '${sender_user:-anonymous}'"
+  if [[ -n "${EXPECTED_USER}" && -n "${sender_user}" && "${sender_user}" != "${EXPECTED_USER}" ]]; then
+      logger -t remote-listener "SECURITY VIOLATION: Blocked execution attempt from unauthorized publisher '${sender_user}'"
       continue
   fi
   ```

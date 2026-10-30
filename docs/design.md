@@ -58,24 +58,30 @@ graph TD
 
 ## 3-Topic Fleet Architecture & Watchdog Routing
 
-To avoid alert fatigue and enable tailored sound, vibration, and priority policies across mobile and desktop devices, the pipeline routes notifications through three distinct functional channels:
+To avoid alert fatigue, enforce strict separation between observers and administrators, and enable tailored notification policies across mobile and desktop devices, the pipeline routes notifications through three distinct functional channels under a unified group namespace:
+
+### Endpoint Path Format
+All NTFY endpoints are structured using a high-entropy 16-character random hex prefix coupled with the site's dynamic system group name:
+```text
+https://ntfy.sh/<16_RANDOM_HEX_CHARS>-<SYSTEM_GROUP_NAME>/<SUBTOPIC>
+```
 
 ```mermaid
 graph TD
-    subgraph Alerts_Channel ["1. NTFY_ALERTS_TOPIC (Urgent / Alarm)"]
-        A1[systemd-failure-notify.sh] --> A[Critical Alert Stream]
+    subgraph Alerts_Channel ["1. Alerts Topic: ...-<SYSTEM_GROUP_NAME>/alerts (Urgent / Alarm)"]
+        A1[systemd-failure-notify.sh] --> A[Observer / Alerts Stream]
         A2[Script Crashes / failure_handler] --> A
         A3[Failed Package Installations] --> A
         A4["Healthchecks.io Watchdog (Down Event)"] -.-> A
     end
 
-    subgraph Reboot_Channel ["2. NTFY_REBOOT_TOPIC (High Priority Chime)"]
+    subgraph Reboot_Channel ["2. Reboot Topic: ...-<SYSTEM_GROUP_NAME>/reboot (High Priority Chime)"]
         R1[conditional-reboot.sh: Scheduled in 5m] --> R[Reboot Lifecycle Stream]
         R2[conditional-reboot.sh: Deferred] --> R
         R3[post-boot-notify.sh: Boot Successful] --> R
     end
 
-    subgraph Control_Channel ["3. NTFY_CONTROL_TOPIC (Action Buttons & Listener)"]
+    subgraph Control_Channel ["3. Control Topic: ...-<SYSTEM_GROUP_NAME>/control (Action Buttons & Listener)"]
         C1[check-updates.sh: Updates Available] --> C[Control & Action Stream]
         C2[Interactive Apply Updates Buttons] --> C
         C3[remote-update-listener.sh Listener] <--> C
@@ -84,24 +90,25 @@ graph TD
 
 ### Channel Routing & Purpose
 
-| Topic Parameter | Intended Purpose | Urgency Level | Special Integration Notes |
-| :--- | :--- | :--- | :--- |
-| **`NTFY_ALERTS_TOPIC`** | Critical service crashes, update failures, pipeline errors. | **Max / Urgent** | **Designated Target for Healthchecks.io Watchdog**: Configure your Healthchecks.io check integration to forward missing-heartbeat / down notifications directly into this topic. |
-| **`NTFY_REBOOT_TOPIC`** | Scheduled reboots (5m countdown), deferral notices, and post-boot startup confirmations. | **High** | Alerts you when a reboot is pending or confirms when a node has successfully returned online. |
-| **`NTFY_CONTROL_TOPIC`** | Outstanding update digests, interactive `[🚀 Apply Updates]` buttons, and the listener daemon. | **Default** | Houses remote action triggers; secured via HMAC-SHA256 signatures and publisher ACLs. |
+| Subtopic | Topic Format | Intended Purpose | Urgency Level | Access & Security Model |
+| :--- | :--- | :--- | :--- | :--- |
+| **`alerts`** | `<hex>-<group>/alerts` | Critical service crashes, update failures, pipeline errors. | **Max / Urgent** | **Observer Stream**: Dedicated to monitoring and visibility. Observers can see system status without seeing action triggers or buttons. Anyone attempting unauthorized execution on this stream is blocked. **Designated target for Healthchecks.io watchdog down events.** |
+| **`reboot`** | `<hex>-<group>/reboot` | Scheduled reboots (5m countdown), deferral notices, and post-boot startup confirmations. | **High** | Alerts operators when a reboot is pending or confirms when a node has successfully returned online. |
+| **`control`** | `<hex>-<group>/control` | Outstanding update digests, interactive `[🚀 Apply Updates]` buttons, and the listener daemon. | **Default** | **Strict Access Control**: Dedicated exclusively to interactive triggers and command execution. Protected via mandatory `NTFY_VALID_USER` credentials, 16-round HMAC-SHA256 signatures, single-use nonces, and `clear=true` auto-dismissal. |
 
 ### Channel Allocation Map
 
-| Channel | Target Topic | Associated Messages & Triggers | Priority | Source Script / Service |
+| Channel | Target Subtopic | Associated Messages & Triggers | Priority | Source Script / Service |
 | :--- | :--- | :--- | :--- | :--- |
-| **Alerts** | `NTFY_ALERTS_TOPIC` | • `🚨 Systemd Execution Failure`<br>• `❌ Updates Failed`<br>• `⚠️ Reboot Aborted`<br>• `🚨 Pipeline Failure`<br>• Healthchecks.io watchdog down/timeout alerts | `urgent` | • `systemd-failure-notify.sh`<br>• `apply-all-updates.sh`<br>• `conditional-reboot.sh`<br>• `common-telemetry.sh` (`failure_handler`)<br>• Healthchecks.io integration |
-| **Reboot** | `NTFY_REBOOT_TOPIC` | • `🔄 Reboot Scheduled` (5m countdown)<br>• `ℹ️ Reboot Deferred` (active user sessions, outside window, process/file locks)<br>• `✅ Boot Successful` (system back online) | `high` / `default` | • `conditional-reboot.sh`<br>• `post-boot-notify.sh` |
-| **Control** | `NTFY_CONTROL_TOPIC` | • `📦 Updates Available`<br>• `📦 Weekly Updates Digest`<br>• `⏳ Updates In Progress`<br>• `✅ Updates Completed`<br>• `[🚀 Apply Updates]` action button POST target<br>• `remote-update-listener.sh` subscription stream | `default` (min priority on button click) | • `check-updates.sh`<br>• `pending-updates-digest.sh`<br>• `apply-all-updates.sh`<br>• `common-telemetry.sh`<br>• `remote-update-listener.sh` |
+| **Alerts** | `<hex>-<group>/alerts` | • `🚨 Systemd Execution Failure`<br>• `❌ Updates Failed`<br>• `⚠️ Reboot Aborted`<br>• `🚨 Pipeline Failure`<br>• Healthchecks.io watchdog down/timeout alerts | `urgent` | • `systemd-failure-notify.sh`<br>• `apply-all-updates.sh`<br>• `conditional-reboot.sh`<br>• `common-telemetry.sh` (`failure_handler`)<br>• Healthchecks.io integration |
+| **Reboot** | `<hex>-<group>/reboot` | • `🔄 Reboot Scheduled` (5m countdown)<br>• `ℹ️ Reboot Deferred` (active user sessions, outside window, process/file locks)<br>• `✅ Boot Successful` (system back online) | `high` / `default` | • `conditional-reboot.sh`<br>• `post-boot-notify.sh` |
+| **Control** | `<hex>-<group>/control` | • `📦 Updates Available`<br>• `📦 Weekly Updates Digest`<br>• `⏳ Updates In Progress`<br>• `✅ Updates Completed`<br>• `[🚀 Apply Updates]` action button POST target<br>• `remote-update-listener.sh` subscription stream | `default` (min priority on button click) | • `check-updates.sh`<br>• `pending-updates-digest.sh`<br>• `apply-all-updates.sh`<br>• `common-telemetry.sh`<br>• `remote-update-listener.sh` |
 
 ### Fleet Multi-Host Differentiation
 On shared topics spanning multiple machines:
 - **Title Prefixing**: All telemetry messages automatically prepend `[<hostname>]` (e.g. `[pond] 🔄 Reboot Scheduled`).
 - **Targeted Action Payloads**: Remote action buttons embed target host IDs (`apply_updates:<hostname>:...`) so other nodes sharing the topic ignore non-targeted commands.
+- **Security Violation Auditing**: All apparent security violations (unauthorized publishers, forged HMAC signatures, replayed nonces, expired commands) are explicitly logged to syslog with `SECURITY VIOLATION:`.
 
 ---
 
@@ -153,9 +160,9 @@ To enable zero-touch bootstrapping across heterogeneous fleets, `deploy.sh` auto
     - On registered RHEL nodes: `subscription-manager repos --enable codeready-builder-for-rhel-${rhel_ver}-$(arch)-rpms`
     - On RHEL clones / standard DNF systems: `crb enable` or `dnf config-manager --set-enabled crb`
   - **EPEL Provisioning**: Automatically installs the Extra Packages for Enterprise Linux (EPEL) configuration package if not already registered, ensuring `etckeeper` is installable.
-  - **Core Tools**: Resolves and installs missing core requirements (`dnf-utils` or `dnf-plugins-core`, `dnf-automatic`, `etckeeper`, `git`, `openssl`, `curl`).
+  - **Core Tools**: Resolves and installs missing core requirements (`dnf-utils` or `dnf-plugins-core`, `dnf-automatic`, `etckeeper`, `git`, `openssl`, `curl`, `faketime`).
 - **Debian / Ubuntu Ecosystem (Ubuntu 22.04+, Debian 12+)**:
-  - Automatically updates package indexes and installs missing dependencies (`unattended-upgrades`, `etckeeper`, `git`, `openssl`, `curl`) using `DEBIAN_FRONTEND=noninteractive`.
+  - Automatically updates package indexes and installs missing dependencies (`unattended-upgrades`, `etckeeper`, `git`, `openssl`, `curl`, `faketime`) using `DEBIAN_FRONTEND=noninteractive`.
 
 ---
 
