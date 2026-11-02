@@ -14,6 +14,7 @@ Design notes.
 - `units/`: Timer and service definitions for systemd reboot orchestration, update checking, digests, and remote listeners.
 - `apt/apt.conf.d/99unattended-upgrades-local`: Debian/Ubuntu package manager local overrides.
 - `dnf/99-dnf-automatic-local.conf`: RHEL/CentOS package manager local overrides.
+- `docs/anti-patterns.md`: Summary of evaluated and rejected architectural anti-patterns.
 
 ---
 
