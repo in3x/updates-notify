@@ -132,12 +132,16 @@ _(Note: `site-conf/*` is excluded via `.gitignore` so your secrets and tokens ar
 
 ### 2. Execute Deployment Script
 
-Run `deploy.sh` as `root` passing your system group name. The script installs scripts, systemd units, package manager drop-ins, and merges your site configuration into `/etc/conditional-reboot.conf.d/99-local.conf`:
+Run `deploy.sh` as `root`. You can provide your system group name directly, or run it without arguments to interactively choose from the available configurations in `site-conf/`:
 
 ```bash
-# Syntax: sudo ./deploy.sh <system-group-name>
+# Syntax: sudo ./deploy.sh [system-group-name]
 
+# Direct execution:
 sudo ./deploy.sh homelab
+
+# Or interactive menu selection:
+sudo ./deploy.sh
 ```
 
 _If `etckeeper` is installed, the script automatically stages `/etc` prior to deployment and commits all changes upon completion._

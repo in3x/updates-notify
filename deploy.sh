@@ -10,16 +10,60 @@ if [[ $EUID -ne 0 ]]; then
    exit 1
 fi
 
-# Require system group argument
-if [[ $# -lt 1 || -z "${1:-}" ]]; then
-    echo "Error: Missing required system group name argument." >&2
-    echo "Usage: sudo $0 <system-group-name>" >&2
-    echo "Example: sudo $0 homelab" >&2
-    echo "Generate site configuration first using: ./scripts/generate-topic.sh <system-group-name>" >&2
-    exit 1
+# Detect repository root directory
+REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Require or select system group configuration
+SYSTEM_GROUP="${1:-}"
+
+if [[ -z "${SYSTEM_GROUP}" ]]; then
+    shopt -s nullglob
+    available_groups=()
+    if [[ -d "${REPO_DIR}/site-conf" ]]; then
+        for dir in "${REPO_DIR}/site-conf"/*/; do
+            dir_name="$(basename "${dir}")"
+            conf_files=("${dir}"*.conf)
+            if (( ${#conf_files[@]} > 0 )); then
+                available_groups+=("${dir_name}")
+            fi
+        done
+    fi
+    shopt -u nullglob
+
+    if (( ${#available_groups[@]} == 0 )); then
+        echo "Error: No site configurations found in ${REPO_DIR}/site-conf/." >&2
+        echo "Generate a site configuration first using:" >&2
+        echo "  ./scripts/generate-topic.sh <system-group-name> <ntfy-valid-user>" >&2
+        exit 1
+    fi
+
+    if [[ ! -t 0 ]]; then
+        echo "Error: Non-interactive terminal and no system group argument provided." >&2
+        echo "Usage: sudo $0 <system-group-name>" >&2
+        exit 1
+    fi
+
+    echo "No system group specified. Available configurations in site-conf/:"
+    for i in "${!available_groups[@]}"; do
+        echo "  $(( i + 1 ))) ${available_groups[i]}"
+    done
+    echo ""
+
+    while true; do
+        read -r -p "Select a configuration to deploy [1-${#available_groups[@]} or 'q' to quit]: " selection
+        if [[ "${selection}" =~ ^[Qq]$ ]]; then
+            echo "Deployment cancelled by user." >&2
+            exit 0
+        fi
+        if [[ "${selection}" =~ ^[0-9]+$ ]] && (( selection >= 1 && selection <= ${#available_groups[@]} )); then
+            SYSTEM_GROUP="${available_groups[$(( selection - 1 ))]}"
+            break
+        else
+            echo "Invalid selection. Please enter a number between 1 and ${#available_groups[@]}."
+        fi
+    done
 fi
 
-SYSTEM_GROUP="$1"
 echo "==> Deploying updates-notify pipeline to system..."
 echo "    System Group: ${SYSTEM_GROUP}"
 
@@ -128,9 +172,6 @@ if command -v etckeeper >/dev/null 2>&1; then
 else
     echo "⚠️  etckeeper is not available. Continuing deployment without /etc tracking..."
 fi
-
-# Detect repository root directory
-REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # Interactive File Installation Helper
 install_file_safely() {
