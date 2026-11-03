@@ -61,7 +61,7 @@ When using public NTFY servers or shared topics without paid server-side write r
 
 ### Complete Separation of Public Topics and Private Secrets
 The public NTFY topic endpoints and the `FLEET_SECRET` are generated as **two completely independent random values**:
-- **Topic Namespace** (`https://ntfy.sh/<16_RANDOM_HEX_CHARS>-<SYSTEM_GROUP_NAME>/<SUBTOPIC>`): A public, high-entropy routing endpoint visible in URLs with separate functional subtopics (`/alerts`, `/reboot`, `/control`).
+- **Topic Namespace** (`https://ntfy.sh/<16_RANDOM_HEX_CHARS>-<SYSTEM_GROUP_NAME>-<SUBTOPIC>`): A public, high-entropy flat routing endpoint (max 64 chars) with separate functional subtopics (`-alerts`, `-reboot`, `-control`).
 - **`FLEET_SECRET`** (256-bit hex): A confidential, host-isolated signing key locked down (`0600 root:root`) in `/etc/conditional-reboot.conf.d/99-local.conf`.
 
 The topic name is **never derived from, combined with, or related to** the secret. Even if an attacker monitors or intercepts the topic URL, zero knowledge of the signing key is leaked.

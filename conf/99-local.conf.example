@@ -1,13 +1,14 @@
 # Host Telemetry & Notification Overrides
 # Deploy to /etc/conditional-reboot.conf.d/99-local.conf (chmod 600, root:root)
 
-# NTFY Fleet Topics (3-Channel Architecture: <16_RANDOM_HEX_CHARS>-<SYSTEM_GROUP_NAME>/<SUBTOPIC>)
+# NTFY Fleet Topics (3-Channel Architecture: <16_RANDOM_HEX_CHARS>-<SYSTEM_GROUP_NAME>-<SUBTOPIC>)
+# Note: NTFY topics are strictly flat (max 64 characters: alphanumeric, hyphens, underscores).
 # NTFY_ALERTS_TOPIC:  Urgent alarms, systemd failures, update errors, and Healthchecks watchdog target (observer stream)
 # NTFY_REBOOT_TOPIC:  Reboot notifications (scheduled, deferred, and boot success confirmation)
 # NTFY_CONTROL_TOPIC: Outstanding updates, remote action buttons, and command listener (restricted access)
-NTFY_ALERTS_TOPIC="abcdef0123456789-yourgroup/alerts"
-NTFY_REBOOT_TOPIC="abcdef0123456789-yourgroup/reboot"
-NTFY_CONTROL_TOPIC="abcdef0123456789-yourgroup/control"
+NTFY_ALERTS_TOPIC="abcdef0123456789-yourgroup-alerts"
+NTFY_REBOOT_TOPIC="abcdef0123456789-yourgroup-reboot"
+NTFY_CONTROL_TOPIC="abcdef0123456789-yourgroup-control"
 
 # Legacy Single-Topic Fallback (used only if 3-topic channels above are unset)
 # NTFY_TOPIC:  use this in a channel per machine configuration
@@ -20,7 +21,7 @@ NTFY_TOKEN="your-token-here"
 HC_PING_URL="https://hc-ping.com/your-uuid-here"
 
 # Optional: Dedicated NTFY command topic for remote action button triggers (defaults to NTFY_CONTROL_TOPIC)
-# NTFY_CMD_TOPIC="abcdef0123456789-yourgroup/control"
+# NTFY_CMD_TOPIC="abcdef0123456789-yourgroup-control"
 
 # Required for access control: Restrict remote action triggers to a verified publisher username (NTFY JSON stream ACL)
 NTFY_VALID_USER="your-ntfy-username"

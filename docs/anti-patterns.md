@@ -20,8 +20,8 @@ Instead of hardcoding alerts into three fixed channels (`ALERTS`, `REBOOT`, `CON
 
 1. **Breaks the "Observer vs. Admin" Security Boundary**:
    The 3-channel architecture enforces a strict security wall:
-   - Observers on `.../alerts` see notifications but **never** see or receive action triggers.
-   - Interactive root action buttons (`[🚀 Apply Updates]`) exist **exclusively** on `.../control`.
+   - Observers on `...-alerts` see notifications but **never** see or receive action triggers.
+   - Interactive root action buttons (`[🚀 Apply Updates]`) exist **exclusively** on `...-control`.
    If per-event routing were configurable, an administrator or automated script could inadvertently route pending update notifications to an observer channel. This would leak cryptographically signed root action triggers to unauthorized devices. Keeping routing hardcoded in the scripts guarantees that action buttons can *never* leak outside the Control topic.
 
 2. **Configuration Bloat & Fragility**:
@@ -82,5 +82,24 @@ Derive the public NTFY topic name directly from the local cryptographic secret (
 ### The Better Solution
 **Complete Cryptographic Separation:**
 `generate-topic.sh` generates two independent, unrelated values:
-- A high-entropy public topic namespace for message routing (`<16-hex>-<group>/<subtopic>`).
+- A high-entropy public topic namespace for message routing (`<16-hex>-<group>-<subtopic>`).
 - An isolated 256-bit private key (`FLEET_SECRET`) locked down with `chmod 0600 root:root` that is never transmitted, exposed in URLs, or derived from topic strings.
+
+---
+
+## 4. Hierarchical Subtopics with Slashes in NTFY
+
+### The Proposal
+Use forward slashes in topic names to represent nested subtopics under a group namespace (e.g., `https://ntfy.sh/<hex>-<group>/alerts` or `/control`).
+
+### Why It Sounded Good
+- Followed intuitive directory/REST-style hierarchical naming.
+- Visual clarity when organizing groups and subtopics.
+
+### Why It's Actually a Bad Idea
+- **NTFY API Routing Conflict**: NTFY treats the URL path following the topic name as HTTP API endpoints (such as `/json`, `/raw`, `/sse`, `/auth`). Topic names containing slashes disrupt endpoint parsing on NTFY servers.
+- **Flat Namespace Constraint**: NTFY strictly requires topic names to be flat strings consisting solely of alphanumeric characters, hyphens (`-`), and underscores (`_`), with a maximum length of 64 characters.
+
+### The Better Solution
+**Prefix-Based Flat Topics (`<16_hex>-<group>-<subtopic>`):**
+Use hyphens to separate the random hex prefix, system group name, and subtopic suffix (`-alerts`, `-reboot`, `-control`). Validate at generation and migration time that the total length never exceeds 64 characters (`validate_topic_name`).

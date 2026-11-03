@@ -105,7 +105,7 @@ If you prefer to pre-install dependencies manually before deploying:
 
 ### 1. Generate Site Configuration
 
-Use `generate-topic.sh` to generate a site configuration populated with the 3-topic fleet architecture under a shared group namespace (`https://ntfy.sh/<16_HEX_PREFIX>-<SYSTEM_GROUP>/<SUBTOPIC>`) and an independent 256-bit `FLEET_SECRET` (for HMAC signing, never shared or derived from the topics). Providing a valid `ntfy-valid-user` is mandatory to enforce access control:
+Use `generate-topic.sh` to generate a site configuration populated with the 3-topic fleet architecture using a flat, prefix-based namespace (`https://ntfy.sh/<16_HEX_PREFIX>-<SYSTEM_GROUP>-<SUBTOPIC>`) and an independent 256-bit `FLEET_SECRET` (for HMAC signing, never shared or derived from the topics). Providing a valid `ntfy-valid-user` is mandatory to enforce access control:
 
 ```bash
 # Syntax: ./scripts/generate-topic.sh <system-group-name> <ntfy-valid-user> [output-file]
@@ -114,10 +114,10 @@ Use `generate-topic.sh` to generate a site configuration populated with the 3-to
 # Output: Writes to site-conf/homelab/99-local.conf (chmod 0600)
 ```
 
-This generates three dedicated subtopics:
-1. **Alerts Topic (`<hex>-<group>/alerts`):** Observer stream dedicated to critical alarms, systemd execution failures, package update errors, and Healthchecks.io watchdog down events. Configured for maximum urgency (`urgent`). Observers cannot see or trigger action buttons.
-2. **Reboot Topic (`<hex>-<group>/reboot`):** Dedicated to scheduled reboots (5-minute countdowns), deferrals, and post-boot startup confirmations.
-3. **Control Topic (`<hex>-<group>/control`):** Dedicated exclusively to outstanding update digests, the background listener daemon (`remote-update-listener.service`), and interactive `[🚀 Apply Updates]` action buttons. Access is strictly controlled.
+This generates three dedicated flat subtopics (strictly validated against NTFY's 64-character limit):
+1. **Alerts Topic (`<hex>-<group>-alerts`):** Observer stream dedicated to critical alarms, systemd execution failures, package update errors, and Healthchecks.io watchdog down events. Configured for maximum urgency (`urgent`). Observers cannot see or trigger action buttons.
+2. **Reboot Topic (`<hex>-<group>-reboot`):** Dedicated to scheduled reboots (5-minute countdowns), deferrals, and post-boot startup confirmations.
+3. **Control Topic (`<hex>-<group>-control`):** Dedicated exclusively to outstanding update digests, the background listener daemon (`remote-update-listener.service`), and interactive `[🚀 Apply Updates]` action buttons. Access is strictly controlled.
 
 Edit `site-conf/homelab/99-local.conf` to add your `NTFY_TOKEN` and `HC_PING_URL`:
 

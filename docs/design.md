@@ -61,28 +61,29 @@ graph TD
 
 To avoid alert fatigue, enforce strict separation between observers and administrators, and enable tailored notification policies across mobile and desktop devices, the pipeline routes notifications through three distinct functional channels under a unified group namespace:
 
-### Endpoint Path Format
+### Endpoint Naming Format
 All NTFY endpoints are structured using a high-entropy 16-character random hex prefix coupled with the site's dynamic system group name:
 ```text
-https://ntfy.sh/<16_RANDOM_HEX_CHARS>-<SYSTEM_GROUP_NAME>/<SUBTOPIC>
+https://ntfy.sh/<16_RANDOM_HEX_CHARS>-<SYSTEM_GROUP_NAME>-<SUBTOPIC>
 ```
+*Note: NTFY topics are strictly flat namespaces (max 64 characters: `a-z`, `A-Z`, `0-9`, `-`, `_`). The subtopic suffix (`-alerts`, `-reboot`, `-control`) is joined via hyphens, ensuring compliance with NTFY HTTP API routing.*
 
 ```mermaid
 graph TD
-    subgraph Alerts_Channel ["1. Alerts Topic: ...-<SYSTEM_GROUP_NAME>/alerts (Urgent / Alarm)"]
+    subgraph Alerts_Channel ["1. Alerts Topic: ...-<SYSTEM_GROUP_NAME>-alerts (Urgent / Alarm)"]
         A1[systemd-failure-notify.sh] --> A[Observer / Alerts Stream]
         A2[Script Crashes / failure_handler] --> A
         A3[Failed Package Installations] --> A
         A4["Healthchecks.io Watchdog (Down Event)"] -.-> A
     end
 
-    subgraph Reboot_Channel ["2. Reboot Topic: ...-<SYSTEM_GROUP_NAME>/reboot (High Priority Chime)"]
+    subgraph Reboot_Channel ["2. Reboot Topic: ...-<SYSTEM_GROUP_NAME>-reboot (High Priority Chime)"]
         R1[conditional-reboot.sh: Scheduled in 5m] --> R[Reboot Lifecycle Stream]
         R2[conditional-reboot.sh: Deferred] --> R
         R3[post-boot-notify.sh: Boot Successful] --> R
     end
 
-    subgraph Control_Channel ["3. Control Topic: ...-<SYSTEM_GROUP_NAME>/control (Action Buttons & Listener)"]
+    subgraph Control_Channel ["3. Control Topic: ...-<SYSTEM_GROUP_NAME>-control (Action Buttons & Listener)"]
         C1[check-updates.sh: Updates Available] --> C[Control & Action Stream]
         C2[Interactive Apply Updates Buttons] --> C
         C3[remote-update-listener.sh Listener] <--> C
@@ -93,17 +94,17 @@ graph TD
 
 | Subtopic | Topic Format | Intended Purpose | Urgency Level | Access & Security Model |
 | :--- | :--- | :--- | :--- | :--- |
-| **`alerts`** | `<hex>-<group>/alerts` | Critical service crashes, update failures, pipeline errors. | **Max / Urgent** | **Observer Stream**: Dedicated to monitoring and visibility. Observers can see system status without seeing action triggers or buttons. Anyone attempting unauthorized execution on this stream is blocked. **Designated target for Healthchecks.io watchdog down events.** |
-| **`reboot`** | `<hex>-<group>/reboot` | Scheduled reboots (5m countdown), deferral notices, and post-boot startup confirmations. | **High** | Alerts operators when a reboot is pending or confirms when a node has successfully returned online. |
-| **`control`** | `<hex>-<group>/control` | Outstanding update digests, interactive `[🚀 Apply Updates]` buttons, and the listener daemon. | **Default** | **Strict Access Control**: Dedicated exclusively to interactive triggers and command execution. Protected via mandatory `NTFY_VALID_USER` credentials, 16-round HMAC-SHA256 signatures, single-use nonces, and `clear=true` auto-dismissal. |
+| **`alerts`** | `<hex>-<group>-alerts` | Critical service crashes, update failures, pipeline errors. | **Max / Urgent** | **Observer Stream**: Dedicated to monitoring and visibility. Observers can see system status without seeing action triggers or buttons. Anyone attempting unauthorized execution on this stream is blocked. **Designated target for Healthchecks.io watchdog down events.** |
+| **`reboot`** | `<hex>-<group>-reboot` | Scheduled reboots (5m countdown), deferral notices, and post-boot startup confirmations. | **High** | Alerts operators when a reboot is pending or confirms when a node has successfully returned online. |
+| **`control`** | `<hex>-<group>-control` | Outstanding update digests, interactive `[🚀 Apply Updates]` buttons, and the listener daemon. | **Default** | **Strict Access Control**: Dedicated exclusively to interactive triggers and command execution. Protected via mandatory `NTFY_VALID_USER` credentials, 16-round HMAC-SHA256 signatures, single-use nonces, and `clear=true` auto-dismissal. |
 
 ### Channel Allocation Map
 
 | Channel | Target Subtopic | Associated Messages & Triggers | Priority | Source Script / Service |
 | :--- | :--- | :--- | :--- | :--- |
-| **Alerts** | `<hex>-<group>/alerts` | • `🚨 Systemd Execution Failure`<br>• `❌ Updates Failed`<br>• `⚠️ Reboot Aborted`<br>• `🚨 Pipeline Failure`<br>• Healthchecks.io watchdog down/timeout alerts | `urgent` | • `systemd-failure-notify.sh`<br>• `apply-all-updates.sh`<br>• `conditional-reboot.sh`<br>• `common-telemetry.sh` (`failure_handler`)<br>• Healthchecks.io integration |
-| **Reboot** | `<hex>-<group>/reboot` | • `🔄 Reboot Scheduled` (5m countdown)<br>• `ℹ️ Reboot Deferred` (active user sessions, outside window, process/file locks)<br>• `✅ Boot Successful` (system back online) | `high` / `default` | • `conditional-reboot.sh`<br>• `post-boot-notify.sh` |
-| **Control** | `<hex>-<group>/control` | • `📦 Updates Available`<br>• `📦 Weekly Updates Digest`<br>• `⏳ Updates In Progress`<br>• `✅ Updates Completed`<br>• `[🚀 Apply Updates]` action button POST target<br>• `remote-update-listener.sh` subscription stream | `default` (min priority on button click) | • `check-updates.sh`<br>• `pending-updates-digest.sh`<br>• `apply-all-updates.sh`<br>• `common-telemetry.sh`<br>• `remote-update-listener.sh` |
+| **Alerts** | `<hex>-<group>-alerts` | • `🚨 Systemd Execution Failure`<br>• `❌ Updates Failed`<br>• `⚠️ Reboot Aborted`<br>• `🚨 Pipeline Failure`<br>• Healthchecks.io watchdog down/timeout alerts | `urgent` | • `systemd-failure-notify.sh`<br>• `apply-all-updates.sh`<br>• `conditional-reboot.sh`<br>• `common-telemetry.sh` (`failure_handler`)<br>• Healthchecks.io integration |
+| **Reboot** | `<hex>-<group>-reboot` | • `🔄 Reboot Scheduled` (5m countdown)<br>• `ℹ️ Reboot Deferred` (active user sessions, outside window, process/file locks)<br>• `✅ Boot Successful` (system back online) | `high` / `default` | • `conditional-reboot.sh`<br>• `post-boot-notify.sh` |
+| **Control** | `<hex>-<group>-control` | • `📦 Updates Available`<br>• `📦 Weekly Updates Digest`<br>• `⏳ Updates In Progress`<br>• `✅ Updates Completed`<br>• `[🚀 Apply Updates]` action button POST target<br>• `remote-update-listener.sh` subscription stream | `default` (min priority on button click) | • `check-updates.sh`<br>• `pending-updates-digest.sh`<br>• `apply-all-updates.sh`<br>• `common-telemetry.sh`<br>• `remote-update-listener.sh` |
 
 ### Fleet Multi-Host Differentiation
 On shared topics spanning multiple machines:
