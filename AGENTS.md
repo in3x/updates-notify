@@ -1,0 +1,1 @@
+/home/eric/Projects/zed-standards/AGENTS.md

@@ -1,9 +1,9 @@
 [Unit]
-Description=Run Conditional System Reboot Check Daily
+Description=Trigger Conditional Reboot Pipeline (In-Window Retries)
 
 [Timer]
-OnCalendar=*-*-* 03:00:00
-RandomizedDelaySec=1800
+OnCalendar=*-*-* 02,03,04,05:00,15,30,45:00
+RandomizedDelaySec=300
 Persistent=true
 
 [Install]

@@ -174,7 +174,7 @@ if [[ -f /etc/redhat-release ]]; then
         if command -v crb >/dev/null 2>&1; then
             FORCE_DNF=1 /usr/bin/crb enable 2>/dev/null || true
         elif command -v dnf >/dev/null 2>&1; then
-            dnf config-manager --set-enabled crb 2>/dev/null || dnf config-manager --set-enabled powertools 2>/dev/null || true
+            dnf config-manager --set-enabled powertools 2>/dev/null || dnf config-manager --set-enabled crb 2>/dev/null || true
         fi
 
         # Provision EPEL if needed for etckeeper

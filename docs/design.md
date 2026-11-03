@@ -15,6 +15,7 @@ Design notes.
 - `apt/apt.conf.d/99unattended-upgrades-local`: Debian/Ubuntu package manager local overrides.
 - `dnf/99-dnf-automatic-local.conf`: RHEL/CentOS package manager local overrides.
 - `docs/anti-patterns.md`: Summary of evaluated and rejected architectural anti-patterns.
+- `docs/future-problems.md`: Operational backlog on session disambiguation and two-tier soft block bypass models.
 
 ---
 
@@ -133,6 +134,18 @@ The pipeline guarantees that conditional reboots and package upgrades never coll
    - If package installation encounters an error, the pipeline sets `/run/package-update.failed`.
    - `conditional-reboot.sh` refuses to restart the machine until the failure flag is resolved by a subsequent successful run.
 
+5. **Multi-Condition Audit & Persistent Logging**:
+   - Instead of exiting on the first failing check, `conditional-reboot.sh` executes a full multi-condition inspection across all safety dimensions:
+     - **Hard Blocks**: `package_failure` flag, active package manager locks (`dpkg`, `libdnf5`, `rpmdb`), blocked background processes (`borg`, `rsync`).
+     - **Soft Blocks**: `outside_window`, active interactive user sessions (`user_sessions` with UID, terminal PTY, and origin IP).
+   - Records the complete audit snapshot to `/var/log/reboot-blocks.log`, syslog, and the NTFY notification body.
+   - For design analysis on future session whitelisting and bypass mechanics, see [Problems for Future Me](future-problems.md).
+
+6. **In-Window Silent Retries (15-Minute Evaluations)**:
+   - `conditional-reboot.timer` evaluates every 15 minutes across the 02:00–05:00 maintenance window.
+   - When a block is encountered inside the window, it sends **exactly one** detailed alert at the start of the blockage (`reboot_deferred_reported`) and continues retrying silently every 15 minutes.
+   - If a transient condition clears (e.g. backup job completes, idle SSH terminal disconnects), the next 15-minute retry detects a clean state and initiates the reboot automatically.
+
 ---
 
 ## Notification Timing & NTFY Action Buttons
@@ -156,11 +169,11 @@ The pipeline supports remote action buttons via NTFY (e.g. `[🚀 Apply All Upda
 
 To enable zero-touch bootstrapping across heterogeneous fleets, `deploy.sh` automates the dependency and repository resolution process:
 
-- **RHEL Ecosystem (RHEL 9+, CentOS Stream, Rocky Linux, AlmaLinux)**:
-  - **Dynamic Version Detection**: Extracts the active major version at runtime from `/etc/os-release` (`VERSION_ID`), with `rpm -E %rhel` fallback, cleanly validating an integer (`9`, `10`, etc.) across bare-metal and virtual Enterprise Linux hosts.
-  - **CodeReady Linux Builder (CRB)**: Automatically activates the CRB / PowerTools repository, which is required to satisfy upstream package dependencies for EPEL tools:
+- **RHEL Ecosystem (RHEL 8+, CentOS Stream, Rocky Linux, AlmaLinux)**:
+  - **Dynamic Version Detection**: Extracts the active major version at runtime from `/etc/os-release` (`VERSION_ID`), with `rpm -E %rhel` fallback, cleanly validating an integer (`8`, `9`, `10`, etc.) across bare-metal and virtual Enterprise Linux hosts.
+  - **CodeReady Linux Builder (CRB) / PowerTools**: Automatically activates the CRB (RHEL 9+) or PowerTools (RHEL 8 clones) repository, which is required to satisfy upstream package dependencies for EPEL tools:
     - On registered RHEL nodes: `subscription-manager repos --enable codeready-builder-for-rhel-${rhel_ver}-$(arch)-rpms`
-    - On RHEL clones / standard DNF systems: `crb enable` or `dnf config-manager --set-enabled crb`
+    - On RHEL clones / standard DNF systems: `crb enable` or `dnf config-manager --set-enabled powertools` / `crb`
   - **EPEL Provisioning**: Automatically installs the Extra Packages for Enterprise Linux (EPEL) configuration package if not already registered, ensuring `etckeeper` is installable.
   - **Core Tools**: Resolves and installs missing core requirements (`dnf-utils` or `dnf-plugins-core`, `dnf-automatic`, `etckeeper`, `git`, `openssl`, `curl`, `faketime`).
 - **Debian / Ubuntu Ecosystem (Ubuntu 22.04+, Debian 12+)**:

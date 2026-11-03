@@ -1,6 +1,6 @@
 # Automated Security Patching & Reboot Orchestration
 
-Unintentional, cloud-independent micro-automation stack for system updates for both security and outstanding packages, supporting Ubuntu (22.04+) and RHEL (9+).
+Unintentional, cloud-independent micro-automation stack for system updates for both security and outstanding packages, supporting Ubuntu (22.04+) and RHEL (8+).
 
 ## Features
 
@@ -10,6 +10,7 @@ Unintentional, cloud-independent micro-automation stack for system updates for b
 - **3-Topic Notification Channels**: Routes messages to dedicated topics (`alerts`, `reboot`, and `control`) so critical alarms override Do-Not-Disturb while daily updates remain quiet. See design notes: [3-Topic Fleet Architecture & Watchdog Routing](docs/design.md#3-topic-fleet-architecture--watchdog-routing).
 - **Post-Boot Confirmation Telemetry**: Startup service (`post-boot-notify.service`) dispatches an immediate confirmation to the reboot topic when a node returns online, reporting kernel version and uptime.
 - **Safety-First Reboot Orchestration**: Enforces strict maintenance windows, verifies absence of active non-root SSH users, checks blocked background tasks, and verifies package manager locks before restarting. Design notes are found at: [Collision Prevention & Orchestration Safety](docs/design.md#collision-prevention--orchestration-safety).
+- **Multi-Condition Audit & In-Window Silent Retries**: Audits all active blocking conditions without early exit, logs historical snapshots to `/var/log/reboot-blocks.log`, and retries silently every 15 minutes during the maintenance window to reboot automatically as soon as transient blocks clear.
 - **5-Minute Pre-Reboot Grace Period**: Broadcasts high-priority alert notifications before reboot, giving operators time to cancel (`shutdown -c`) if needed.
 - **Package-Level Audit Logging**: Identifies and logs the specific packages triggering the reboot need (from `/run/reboot-required.pkgs` or `needs-restarting`).
 - **Failure Quarantine & Alerting**: Halts automated reboots if prior package installations failed, dispatching urgent alerts to NTFY and Healthchecks.io.
@@ -54,18 +55,18 @@ The deployment process is as automated as one reasonably can. The deployment pro
 
 If you prefer to pre-install dependencies manually before deploying:
 
-- **RHEL 9 / 10+ & Clones (Rocky, Alma, CentOS Stream):**
+- **RHEL 8 / 9 / 10+ & Clones (Rocky, Alma, CentOS Stream):**
     ```bash
-    # 1. Resolve RHEL major version (9, 10, etc.) from /etc/os-release
+    # 1. Resolve RHEL major version (8, 9, 10, etc.) from /etc/os-release
     rhel_ver=$(. /etc/os-release && echo "${VERSION_ID%%.*}")
 
-    # 2. Enable CodeReady Linux Builder (CRB)
+    # 2. Enable CodeReady Linux Builder (CRB) / PowerTools (RHEL 8 clones)
     if command -v subscription-manager >/dev/null 2>&1; then
         sudo subscription-manager repos --enable "codeready-builder-for-rhel-${rhel_ver}-$(arch)-rpms"
     elif command -v crb >/dev/null 2>&1; then
         sudo FORCE_DNF=1 /usr/bin/crb enable
     else
-        sudo dnf config-manager --set-enabled crb 2>/dev/null || sudo dnf config-manager --set-enabled powertools 2>/dev/null
+        sudo dnf config-manager --set-enabled powertools 2>/dev/null || sudo dnf config-manager --set-enabled crb 2>/dev/null
     fi
 
     # 3. Enable EPEL (required for etckeeper)

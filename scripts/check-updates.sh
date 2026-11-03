@@ -28,12 +28,19 @@ if [[ -z "${PENDING_UPDATES}" ]]; then
     exit 0
 fi
 
-# 4. Format Telemetry & Action Button
+# 4. Format Telemetry & Dispatch to Dedicated Channels
 ACTION_BTN=$(get_apply_updates_action)
-MESSAGE="Available for upgrade on ${HOSTNAME}: ${PENDING_UPDATES}."
+ALERTS_MESSAGE="Available for upgrade on ${HOSTNAME}: ${PENDING_UPDATES}."
+CONTROL_MESSAGE="${PENDING_UPDATES} ready to install.\n\nSee alerts topic for full package breakdown. Tap below to apply."
 
 logger -t check-updates "Outstanding updates detected: ${PENDING_UPDATES}"
-send_ntfy "control" "📦 Updates Available" "${MESSAGE}" "default" "${ACTION_BTN}"
+
+# Observer Stream (Alerts): Full detailed package list, NO action buttons
+send_ntfy "alerts" "📦 Updates Available" "${ALERTS_MESSAGE}" "default"
+
+# Control Stream (Admin): Concise summary pointing to alerts + signed action button
+send_ntfy "control" "🚀 Ready to Upgrade" "${CONTROL_MESSAGE}" "default" "${ACTION_BTN}"
+
 ping_hc ""
 
 exit 0
