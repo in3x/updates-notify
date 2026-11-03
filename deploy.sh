@@ -13,10 +13,64 @@ fi
 # Detect repository root directory
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+# Helper: interactively create a new system group configuration
+create_new_group_interactive() {
+    local new_group=""
+    while true; do
+        read -r -p "Enter new system group name: " new_group
+        if [[ -z "${new_group}" ]]; then
+            echo "System group name cannot be empty."
+            continue
+        fi
+        if [[ ! "${new_group}" =~ ^[a-zA-Z0-9_-]+$ ]]; then
+            echo "Invalid name. Use only letters, numbers, hyphens, and underscores."
+            continue
+        fi
+        if (( ${#new_group} > 39 )); then
+            echo "Name too long (${#new_group} chars). Maximum allowed is 39 characters."
+            continue
+        fi
+        break
+    done
+
+    local new_user=""
+    while true; do
+        read -r -p "Enter your NTFY username (for publisher access control): " new_user
+        if [[ -z "${new_user}" || "${new_user}" == "your-ntfy-username" ]]; then
+            echo "A valid NTFY username is required to enforce access control."
+            continue
+        fi
+        break
+    done
+
+    "${REPO_DIR}/scripts/generate-topic.sh" "${new_group}" "${new_user}"
+
+    local conf_path="${REPO_DIR}/site-conf/${new_group}/99-local.conf"
+
+    echo ""
+    read -r -p "Enter NTFY machine access token (or press Enter to configure later): " input_token
+    if [[ -n "${input_token}" ]]; then
+        sed -i -E "s|^[[:space:]]*#?[[:space:]]*NTFY_TOKEN=.*|NTFY_TOKEN=\"${input_token}\"|" "${conf_path}"
+    fi
+
+    read -r -p "Enter Healthchecks.io ping URL (or press Enter to configure later): " input_hc
+    if [[ -n "${input_hc}" ]]; then
+        sed -i -E "s|^[[:space:]]*#?[[:space:]]*HC_PING_URL=.*|HC_PING_URL=\"${input_hc}\"|" "${conf_path}"
+    fi
+
+    SYSTEM_GROUP="${new_group}"
+}
+
 # Require or select system group configuration
 SYSTEM_GROUP="${1:-}"
 
 if [[ -z "${SYSTEM_GROUP}" ]]; then
+    if [[ ! -t 0 ]]; then
+        echo "Error: Non-interactive terminal and no system group argument provided." >&2
+        echo "Usage: sudo $0 <system-group-name>" >&2
+        exit 1
+    fi
+
     shopt -s nullglob
     available_groups=()
     if [[ -d "${REPO_DIR}/site-conf" ]]; then
@@ -31,37 +85,41 @@ if [[ -z "${SYSTEM_GROUP}" ]]; then
     shopt -u nullglob
 
     if (( ${#available_groups[@]} == 0 )); then
-        echo "Error: No site configurations found in ${REPO_DIR}/site-conf/." >&2
-        echo "Generate a site configuration first using:" >&2
-        echo "  ./scripts/generate-topic.sh <system-group-name> <ntfy-valid-user>" >&2
-        exit 1
-    fi
-
-    if [[ ! -t 0 ]]; then
-        echo "Error: Non-interactive terminal and no system group argument provided." >&2
-        echo "Usage: sudo $0 <system-group-name>" >&2
-        exit 1
-    fi
-
-    echo "No system group specified. Available configurations in site-conf/:"
-    for i in "${!available_groups[@]}"; do
-        echo "  $(( i + 1 ))) ${available_groups[i]}"
-    done
-    echo ""
-
-    while true; do
-        read -r -p "Select a configuration to deploy [1-${#available_groups[@]} or 'q' to quit]: " selection
-        if [[ "${selection}" =~ ^[Qq]$ ]]; then
+        echo "No existing site configurations found in site-conf/."
+        read -r -p "Create a new system group configuration now? [Y/n]: " create_choice
+        create_choice="${create_choice:-Y}"
+        if [[ "${create_choice}" =~ ^[Yy]$ ]]; then
+            create_new_group_interactive
+        else
             echo "Deployment cancelled by user." >&2
             exit 0
         fi
-        if [[ "${selection}" =~ ^[0-9]+$ ]] && (( selection >= 1 && selection <= ${#available_groups[@]} )); then
-            SYSTEM_GROUP="${available_groups[$(( selection - 1 ))]}"
-            break
-        else
-            echo "Invalid selection. Please enter a number between 1 and ${#available_groups[@]}."
-        fi
-    done
+    else
+        echo "No system group specified. Available configurations in site-conf/:"
+        for i in "${!available_groups[@]}"; do
+            echo "  $(( i + 1 ))) ${available_groups[i]}"
+        done
+        echo "  n) Create a new system group configuration"
+        echo ""
+
+        while true; do
+            read -r -p "Select a configuration to deploy [1-${#available_groups[@]}, 'n' to create new, 'q' to quit]: " selection
+            if [[ "${selection}" =~ ^[Qq]$ ]]; then
+                echo "Deployment cancelled by user." >&2
+                exit 0
+            fi
+            if [[ "${selection}" =~ ^[Nn]$ ]]; then
+                create_new_group_interactive
+                break
+            fi
+            if [[ "${selection}" =~ ^[0-9]+$ ]] && (( selection >= 1 && selection <= ${#available_groups[@]} )); then
+                SYSTEM_GROUP="${available_groups[$(( selection - 1 ))]}"
+                break
+            else
+                echo "Invalid selection. Please enter a number between 1 and ${#available_groups[@]}, or 'n' to create new."
+            fi
+        done
+    fi
 fi
 
 echo "==> Deploying updates-notify pipeline to system..."

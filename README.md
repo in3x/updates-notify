@@ -132,7 +132,7 @@ _(Note: `site-conf/*` is excluded via `.gitignore` so your secrets and tokens ar
 
 ### 2. Execute Deployment Script
 
-Run `deploy.sh` as `root`. You can provide your system group name directly, or run it without arguments to interactively choose from the available configurations in `site-conf/`:
+Run `deploy.sh` as `root`. You can provide your system group name directly, or run it without arguments to interactively choose an existing configuration from `site-conf/` or create a new system group configuration directly from the menu:
 
 ```bash
 # Syntax: sudo ./deploy.sh [system-group-name]
@@ -140,7 +140,7 @@ Run `deploy.sh` as `root`. You can provide your system group name directly, or r
 # Direct execution:
 sudo ./deploy.sh homelab
 
-# Or interactive menu selection:
+# Or interactive menu selection (choose existing group or select 'n' to create a new one):
 sudo ./deploy.sh
 ```
 
