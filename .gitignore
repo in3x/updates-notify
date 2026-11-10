@@ -5,3 +5,8 @@ site-conf/*
 # Exclude local editor and backup files
 *.bak
 *~
+
+# Exclude Zed editor standards, skills, and agent instructions
+.agents/
+AGENTS.md
+.zed/
